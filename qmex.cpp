@@ -15,8 +15,24 @@
 
 using namespace qmex;
 
+#ifdef _WIN32
+#pragma comment(lib, "Shlwapi.lib")
+extern "C" int __stdcall PathMatchSpecA(const char* pszFile, const char* pszSpec);
+#else
+#include <fnmatch.h>
+#endif
+
 namespace
 {
+    bool MatchString(const char* pattern, const char* s) noexcept
+    {
+#ifdef _WIN32
+        return PathMatchSpecA(s, pattern) != 0;
+#else
+        return fnmatch(pattern, s, FNM_NOESCAPE | FNM_CASEFOLD) == 0;
+#endif
+    }
+
     int factor(int precision = Number::precision) noexcept
     {
         int f = 1;
@@ -24,6 +40,37 @@ namespace
             f *= 10;
         return f;
     }
+
+    const char* const TypeName[] = {
+       "NIL",
+       "NUMBER",
+       "STRING",
+    };
+
+    const char* const OpName[] = {
+       "MH",
+       "EQ",
+       "LT",
+       "LE",
+       "GT",
+       "GE",
+    };
+
+    const int TypeKinds = sizeof(TypeName) / sizeof(TypeName[0]);
+    const int OpKinds = sizeof(OpName) / sizeof(OpName[0]);
+
+    struct StringGuard
+    {
+        char* const q;
+        char const b;
+        operator char*() const { return q; }
+        ~StringGuard() { if (q) *q = b; }
+        StringGuard(const char* p, char c = '\0')
+            : q(const_cast<char*>(p)), b(p ? *p : '\0')
+        {
+            if (q) *q = c;
+        }
+    };
 }
 
 
@@ -195,4 +242,167 @@ std::size_t Number::toString(char buf[], std::size_t bufsz) const noexcept
     *s = '.';
     *end = '\0';
     return len;
+}
+
+const char* qmex::toString(Type type) noexcept
+{
+    int ordinal = (int)type;
+    if (ordinal < 0 || ordinal >= TypeKinds)
+        return nullptr;
+    return TypeName[ordinal];
+}
+
+const char* qmex::toString(Op op) noexcept
+{
+    int ordinal = (int)op;
+    if (ordinal < 0 || ordinal >= OpKinds)
+        return nullptr;
+    return OpName[ordinal];
+}
+
+std::string Value::toString(Type type) const noexcept
+{
+    if (type == STRING) return s ? s : "";
+    if (type == NUMBER) return n;
+    return "";
+}
+
+std::string KeyValue::toString() const noexcept
+{
+    if (type == NIL || (type == STRING && !val.s)) return key;
+
+    std::size_t keylen = std::strlen(key), vallen;
+    if (type == STRING) vallen = std::strlen(val.s);
+    else vallen = val.n.toString(nullptr, 0);
+
+    std::string s(keylen + 1 + vallen, '\0');
+    std::strcpy(&s[0], key);
+    s[keylen] = ':';
+    if (type == STRING) std::strcpy(&s[keylen + 1], val.s);
+    else val.n.toString(&s[keylen + 1], vallen + 1);
+    return s;
+}
+
+Criteria::Criteria(String key) noexcept(false)
+{
+    if (!key)
+    {
+        key = "nil";
+        goto error;
+    }
+
+    std::size_t len = std::strlen(key);
+    if (len < 4) goto error;
+    int ordinal = 0;
+    while (ordinal < OpKinds)
+    {
+        if (std::strcmp(&key[len - 2], OpName[ordinal]))
+            ++ordinal;
+        else
+            break;
+    }
+    if (ordinal >= OpKinds) goto error;
+    this->key = key;
+    this->op = (Op)ordinal;
+    if (ordinal == MH) this->val.s = "";
+
+    return;
+error:
+    throw std::invalid_argument('[' + std::string(key) + "] is not a valid Criteria key.");
+}
+
+Criteria::Criteria(String key, String val) noexcept(false)
+{
+    *this = Criteria(key);
+    bind(val);
+}
+
+void Criteria::bind(String val) noexcept(false)
+{
+    if (op == MH)
+    {
+        if (!val || !*val) throw std::invalid_argument("The value of Criteria " + std::string(key) + "can not be nil.");
+        this->val.s = val;
+    }
+    else try
+    {
+        this->val.n = val;
+    }
+    catch (std::exception& e)
+    {
+        throw std::invalid_argument("The value of Criteria " + std::string(key) + " is not a valid number.\n" + e.what());
+    }
+}
+
+void Criteria::bind(Number val) noexcept(false)
+{
+    if (op == MH)
+        throw std::invalid_argument("The value of Criteria " + std::string(key) + "should be string type.");
+    this->val.n = val;
+}
+
+double (Criteria::max)() noexcept
+{
+    return std::numeric_limits<double>::infinity();
+}
+
+double (Criteria::min)() noexcept
+{
+    return 0;
+}
+
+double Criteria::distance(const KeyValue& q) noexcept
+{
+    if (const char* s = q.key)
+    {
+        const char* p = key;
+        while (*p && *s && *p == *s) ++p, ++s;
+        if (p[0] == '\0' || p[1] == '\0' || p[2] == '\0' || p[3] != '\0')
+            return KEY_MISMATCH;
+    }
+    if (q.key == nullptr) return KEY_MISMATCH;
+    if (op == MH && (q.type != STRING || q.val.s == nullptr)) return VALUE_NOT_STRING;
+
+    Number qn;
+    while (op != MH)
+    {
+        if (q.type == NUMBER)
+        {
+            qn = q.val.n;
+            break;
+        }
+        if (q.type == STRING) try
+        {
+            qn = q.val.s;
+            break;
+        }
+        catch (std::exception&)
+        {
+
+        }
+        return VALUE_NOT_NUMBER;
+    }
+
+    switch (op)
+    {
+    case MH:
+        for (String p = val.s; ;)
+        {
+            if (StringGuard s = std::strchr(p, '|'))
+            {
+                if (MatchString(p, q.val.s)) return 0;
+                p = s + 1;
+            }
+            else
+            {
+                return MatchString(p, q.val.s) ? 0 : (max)();
+            }
+        }
+    case EQ: return qn.n == val.n.n ? 0 : (max)();
+    case LT: return qn.n <  val.n.n ? (double)val.n.n - (double)qn.n : (max)();
+    case LE: return qn.n <= val.n.n ? (double)val.n.n - (double)qn.n : (max)();
+    case GT: return qn.n >  val.n.n ? (double)qn.n - (double)val.n.n : (max)();
+    case GE: return qn.n >= val.n.n ? (double)qn.n - (double)val.n.n : (max)();
+    }
+    return 0;
 }

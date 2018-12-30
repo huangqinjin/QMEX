@@ -24,6 +24,7 @@
 #  define QMEX_API
 #endif
 
+#include <stdexcept>
 #include <string>
 #include <cstring>
 
@@ -139,6 +140,18 @@ namespace qmex
         }
     };
 
+    struct CriteriaFormatError : std::invalid_argument
+    {
+        explicit CriteriaFormatError(std::string msg)
+            : std::invalid_argument(msg) {}
+    };
+
+    struct ValueTypeError : std::logic_error
+    {
+        explicit ValueTypeError(std::string msg)
+            : std::logic_error(msg) {}
+    };
+
     class QMEX_API Criteria : public KeyValue
     {
     public:
@@ -150,14 +163,7 @@ namespace qmex
         static double (max)() noexcept;
         static double (min)() noexcept;
 
-        enum Error
-        {
-            KEY_MISMATCH = -1,
-            VALUE_NOT_STRING = -2,
-            VALUE_NOT_NUMBER = -3,
-        };
-
-        double distance(const KeyValue& q) noexcept;
+        double distance(const KeyValue& q) noexcept(false);
     };
 }
 

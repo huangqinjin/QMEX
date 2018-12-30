@@ -8,8 +8,8 @@
 //
 #include <algorithm>
 #include <limits>
-#include <stdexcept>
 #include <cstdio>
+#include <climits>
 
 #include "qmex.hpp"
 
@@ -101,7 +101,7 @@ Number::Number(String s) noexcept(false) { *this = s; }
 
 Number& Number::operator=(double d) noexcept(false)
 {
-    if (d != d) throw std::invalid_argument("Can not convert NaN to fixed point number");
+    if (d != d) throw std::invalid_argument("NaN not NUMBER");
     d *= factor();
     if (d >= 0) d += 0.5; // rounding
     else d -= 0.5;
@@ -113,41 +113,36 @@ Number& Number::operator=(double d) noexcept(false)
 
 Number& Number::operator=(String s) noexcept(false)
 {
-    if (!s || !*s)
-    {
-        s = "nil";
-        goto error;
-    }
-    else
-    {
-        const char* infs[] = {
-           "inf",
-           "infinity",
-        };
+    if (!s || !*s) throw std::invalid_argument("NIL not NUMBER");
 
-        for (int i = 0; i < sizeof(infs) / sizeof(infs[0]); ++i)
+    const char* infs[] = {
+        "inf",
+        "infinity",
+    };
+
+    for (int i = 0; i < sizeof(infs) / sizeof(infs[0]); ++i)
+    {
+        const char* p = infs[i];
+        const char* q = s;
+        if (*q == '-') ++q;
+        while (*p && *q && (*p == *q || (*p - 'i' + 'I' == *q)))
+            ++p, ++q;
+        if (*p == *q)
         {
-            const char* p = infs[i];
-            const char* q = s;
-            if (*q == '-') ++q;
-            while (*p && *q && (*p == *q || (*p - 'i' + 'I' == *q)))
-                ++p, ++q;
-            if (*p == *q)
-            {
-                if (*s == '-') n = neginf().n;
-                else n = inf().n;
-                return *this;
-            }
+            if (*s == '-') n = neginf().n;
+            else n = inf().n;
+            return *this;
         }
     }
+
+    errno = 0;
+    char* end;
+    long l, m = 0;
 
     if (*s != '-' && (*s < '0' || *s > '9'))
         goto error;
 
-    errno = 0;
-    char* end;
-    long l = std::strtol(s, &end, 0);
-    long m = 0;
+    l = std::strtol(s, &end, 0);
     if (*end != '.' && *end != '\0') goto error;
 
     if (end[0] == '.' && end[1] != '\0') // fraction part, only supports base-10
@@ -183,7 +178,7 @@ Number& Number::operator=(String s) noexcept(false)
 
     return *this;
 error:
-    throw std::invalid_argument(std::string("Can not convert [") + s + "] to fixed point number");
+    throw std::invalid_argument('`' + std::string(s) + "` not NUMBER");
 }
 
 Number::operator double() const noexcept
@@ -285,15 +280,11 @@ std::string KeyValue::toString() const noexcept
 
 Criteria::Criteria(String key) noexcept(false)
 {
-    if (!key)
-    {
-        key = "nil";
-        goto error;
-    }
+    if (!key || !*key) throw CriteriaFormatError("NIL invalid Criteria");
 
+    int ordinal = 0;
     std::size_t len = std::strlen(key);
     if (len < 4) goto error;
-    int ordinal = 0;
     while (ordinal < OpKinds)
     {
         if (std::strcmp(&key[len - 2], OpName[ordinal]))
@@ -308,7 +299,7 @@ Criteria::Criteria(String key) noexcept(false)
 
     return;
 error:
-    throw std::invalid_argument('[' + std::string(key) + "] is not a valid Criteria key.");
+    throw CriteriaFormatError('`' + std::string(key) + "` invalid Criteria format");
 }
 
 Criteria::Criteria(String key, String val) noexcept(false)
@@ -321,7 +312,7 @@ void Criteria::bind(String val) noexcept(false)
 {
     if (op == MH)
     {
-        if (!val || !*val) throw std::invalid_argument("The value of Criteria " + std::string(key) + "can not be nil.");
+        if (!val || !*val) throw ValueTypeError("Criteria [" + std::string(key) + "] requires non-NIL");
         this->val.s = val;
     }
     else try
@@ -330,14 +321,14 @@ void Criteria::bind(String val) noexcept(false)
     }
     catch (std::exception& e)
     {
-        throw std::invalid_argument("The value of Criteria " + std::string(key) + " is not a valid number.\n" + e.what());
+        throw ValueTypeError("Criteria [" + std::string(key) + "] requires NUMBER\n" + e.what());
     }
 }
 
 void Criteria::bind(Number val) noexcept(false)
 {
     if (op == MH)
-        throw std::invalid_argument("The value of Criteria " + std::string(key) + "should be string type.");
+        throw ValueTypeError("Criteria [" + std::string(key) + "] requires STRING");
     this->val.n = val;
 }
 
@@ -351,37 +342,25 @@ double (Criteria::min)() noexcept
     return 0;
 }
 
-double Criteria::distance(const KeyValue& q) noexcept
+double Criteria::distance(const KeyValue& q) noexcept(false)
 {
     if (const char* s = q.key)
     {
         const char* p = key;
         while (*p && *s && *p == *s) ++p, ++s;
         if (p[0] == '\0' || p[1] == '\0' || p[2] == '\0' || p[3] != '\0')
-            return KEY_MISMATCH;
+            return -1; // key mismatch
     }
-    if (q.key == nullptr) return KEY_MISMATCH;
-    if (op == MH && (q.type != STRING || q.val.s == nullptr)) return VALUE_NOT_STRING;
+    if (q.key == nullptr) return -1; // key mismatch
 
     Number qn;
-    while (op != MH)
-    {
-        if (q.type == NUMBER)
-        {
-            qn = q.val.n;
-            break;
-        }
-        if (q.type == STRING) try
-        {
-            qn = q.val.s;
-            break;
-        }
-        catch (std::exception&)
-        {
-
-        }
-        return VALUE_NOT_NUMBER;
-    }
+    String qs;
+    Criteria t(*this);
+    if (q.type == NUMBER) t.bind(q.val.n);
+    else if (q.type == STRING) t.bind(q.val.s);
+    else t.bind((String)nullptr);
+    if (op == MH) qs = t.val.s;
+    else qn = t.val.n;
 
     switch (op)
     {
@@ -390,12 +369,12 @@ double Criteria::distance(const KeyValue& q) noexcept
         {
             if (StringGuard s = std::strchr(p, '|'))
             {
-                if (MatchString(p, q.val.s)) return 0;
+                if (MatchString(p, qs)) return 0;
                 p = s + 1;
             }
             else
             {
-                return MatchString(p, q.val.s) ? 0 : (max)();
+                return MatchString(p, qs) ? 0 : (max)();
             }
         }
     case EQ: return qn.n == val.n.n ? 0 : (max)();

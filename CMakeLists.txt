@@ -19,6 +19,14 @@ set_target_properties(${PROJECT_NAME} PROPERTIES DEFINE_SYMBOL ${PROJECT_UPPER_N
 target_compile_definitions(${PROJECT_NAME} PUBLIC ${PROJECT_UPPER_NAME}_${PROJECT_LIBRARY_TYPE})
 
 
+project(${PACKAGE_NAME}-cli)
+
+add_executable(${PROJECT_NAME} cli.cpp)
+add_executable(${PACKAGE_NAME}::cli ALIAS ${PROJECT_NAME})
+
+target_link_libraries(${PROJECT_NAME} PUBLIC ${PACKAGE_NAME}::${PACKAGE_NAME})
+
+
 include(CTest)
 if(BUILD_TESTING)
     add_subdirectory(test)

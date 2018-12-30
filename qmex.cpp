@@ -8,8 +8,9 @@
 //
 #include <algorithm>
 #include <limits>
-#include <cstdio>
+#include <vector>
 #include <climits>
+#include <cassert>
 
 #include "qmex.hpp"
 
@@ -384,4 +385,129 @@ double Criteria::distance(const KeyValue& q) noexcept(false)
     case GE: return qn.n >= val.n.n ? (double)qn.n - (double)val.n.n : (max)();
     }
     return 0;
+}
+
+struct Table::Context
+{
+    std::vector<String> cells;
+    int rows;
+    int cols;
+    int criteria;
+};
+
+Table::Table() noexcept : ctx(new Context) {}
+Table::~Table() noexcept { delete ctx; }
+
+void Table::clear() noexcept
+{
+    ctx->cells.clear();
+    ctx->rows = 0;
+    ctx->cols = 0;
+    ctx->criteria = 0;
+}
+
+int Table::rows() const noexcept { return ctx->rows; }
+int Table::cols() const noexcept { return ctx->cols; }
+int Table::criteria() const noexcept { return ctx->criteria; }
+
+String Table::cell(int i, int j) const noexcept(false)
+{
+    if (i < 0 || i >= ctx->rows || j < 0 || j >= ctx->cols)
+    {
+        char buf[200];
+        snprintf(buf, sizeof(buf), "index (%d,%d) out of range %dx%d", i, j, ctx->rows, ctx->cols);
+        throw std::out_of_range(buf);
+    }
+    return ctx->cells[i * ctx->cols + j];
+}
+
+void Table::print(FILE* f) const noexcept
+{
+    for (int i = 0; i < ctx->rows; ++i)
+    {
+        for (int j = 0; j < ctx->cols; ++j)
+        {
+            if (j == ctx->criteria)
+                std::fprintf(f, "%s ", "=");
+            std::fprintf(f, "%s ", cell(i, j));
+        }
+        std::fputc('\n', f);
+    }
+}
+
+void Table::parse(char* buf, std::size_t bufsz) noexcept(false)
+{
+    if (buf == nullptr || bufsz == 0 || buf[bufsz - 1] != '\0')
+        throw std::invalid_argument("invalid buffer input for table parse");
+
+    clear();
+
+    int j = 0, criteria = 0;
+    String cell = nullptr;
+    for (std::size_t i = 0; i < bufsz; ++i)
+    {
+        switch (char& c = buf[i])
+        {
+        case '\0':
+        case '\n':
+            if (j != 0)
+            {
+                if (ctx->cols == 0)
+                    ctx->cols = j;
+                if (criteria == 0 || criteria == j)
+                {
+                    char str[200];
+                    snprintf(str, sizeof(str), "Table has no data at row %d", ctx->rows);
+                    throw TableFormatError(str);
+                }
+                if (ctx->cols != j)
+                {
+                    char str[200];
+                    snprintf(str, sizeof(str), "Table has %d columns but %d at row %d", ctx->cols, j, ctx->rows);
+                    throw TableFormatError(str);
+                }
+                ++ctx->rows;
+                j = 0;
+                criteria = 0;
+            }
+        case ' ':
+        case '\t':
+        //case ',':
+        case '=':
+            if (c == '=' && criteria == 0)
+            {
+                criteria = j;
+                if (ctx->criteria == 0)
+                    ctx->criteria = j;
+                if (ctx->criteria != j)
+                {
+                    char str[200];
+                    snprintf(str, sizeof(str), "Table has %d criteria but %d at row %d", ctx->criteria, j, ctx->rows);
+                    throw TableFormatError(str);
+                }
+                else if (j == 0)
+                {
+                    char str[200];
+                    snprintf(str, sizeof(str), "Table has no criteria at row %d", ctx->rows);
+                    throw TableFormatError(str);
+                }
+            }
+            if (cell)
+            {
+                ctx->cells.push_back(cell);
+                cell = nullptr;
+                c = '\0';
+            }
+            break;
+        default:
+            if (!cell) // start a new cell
+            {
+                cell = &c;
+                ++j;
+            }
+        }
+    }
+
+    assert(ctx->cells.size() == ctx->rows * ctx->cols);
+    if (ctx->cells.empty()) throw TableFormatError("Table is empty");
 }

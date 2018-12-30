@@ -26,6 +26,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <cstdio>
 #include <cstring>
 
 namespace qmex
@@ -164,6 +165,38 @@ namespace qmex
         static double (min)() noexcept;
 
         double distance(const KeyValue& q) noexcept(false);
+    };
+
+    struct TableFormatError : std::logic_error
+    {
+        explicit TableFormatError(std::string msg)
+            : std::logic_error(msg) {}
+    };
+
+    struct TableDataError : ValueTypeError
+    {
+        explicit TableDataError(std::string msg)
+            : ValueTypeError(msg) {}
+    };
+
+    class QMEX_API Table
+    {
+        struct Context;
+        Context* const ctx;
+
+    public:
+        Table() noexcept;
+        ~Table() noexcept;
+        Table(const Table&) = delete;
+        Table& operator=(const Table&) = delete;
+
+        void clear() noexcept;
+        int rows() const noexcept;
+        int cols() const noexcept;
+        int criteria() const noexcept;
+        String cell(int i, int j) const noexcept(false);
+        void print(FILE* f) const noexcept;
+        void parse(char* buf, std::size_t bufsz) noexcept(false);
     };
 }
 

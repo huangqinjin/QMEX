@@ -10,6 +10,7 @@
 #include <typeinfo>
 #include <iostream>
 #include <fstream>
+#include <vector>
 
 using namespace std;
 using namespace qmex;
@@ -40,11 +41,66 @@ int main(int argc, char* argv[]) try
     table.parse(&content[0], content.size() + 1);
     // table.print(stdout);
 
+    int num_queries = 0;
+    int first_error_query_id = 0;
+    string first_error_query;
+
+    std::vector<KeyValue> kvs;
     string line;
     while (getline(cin, line))
     {
+        if (first_error_query_id == 0)
+            first_error_query = line;
 
+        kvs.clear();
+        for (std::size_t i = 0; i < line.size(); ++i)
+        {
+            i = line.find_first_not_of(" \t", i);
+            if (i == std::string::npos) break;
+            kvs.push_back(KeyValue(&line[i]));
+            i = line.find_first_of(" \t", i + 1);
+            if (i == std::string::npos) break;
+            line[i] = '\0';
+        }
+        for (std::size_t i = 0; i < kvs.size(); ++i)
+        {
+            if (const char* p = std::strchr(kvs[i].key, ':'))
+            {
+                kvs[i] = KeyValue(kvs[i].key, p + 1);
+                const_cast<char&>(*p) = '\0';
+            }
+        }
+        if (!kvs.empty()) try
+        {
+            ++num_queries;
+            int row = table.query(&kvs[0], kvs.size());
+            if (row == 0 && first_error_query_id == 0)
+                first_error_query_id = num_queries;
+            if (row > 0)
+            {
+                table.verify(row, &kvs[0], kvs.size());
+                table.retrieve(row, &kvs[0], kvs.size());
+                printf("[%d] row:%d", num_queries, row);
+                for (std::size_t i = 0; i < kvs.size(); ++i)
+                    printf(" %s", kvs[i].toString().c_str());
+                printf("\n");
+            }
+            else
+            {
+                printf("[%d] no matched row\n", num_queries);
+            }
+        }
+        catch (exception& e)
+        {
+            if (first_error_query_id == 0)
+                first_error_query_id = num_queries;
+            printf("[%d] %s: %s\n", num_queries, typeid(e).name(), e.what());
+        }
     }
+
+    if (first_error_query_id)
+        printf("Error[%d]: %s\n", first_error_query_id, first_error_query.c_str());
+    return first_error_query_id;
 }
 catch (exception& e)
 {

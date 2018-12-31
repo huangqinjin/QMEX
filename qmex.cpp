@@ -511,3 +511,157 @@ void Table::parse(char* buf, std::size_t bufsz) noexcept(false)
     assert(ctx->cells.size() == ctx->rows * ctx->cols);
     if (ctx->cells.empty()) throw TableFormatError("Table is empty");
 }
+
+namespace
+{
+    struct QueryInfo : Criteria
+    {
+        int index; // of matched kvs[], -1 not matched yet, -2 no match found.
+        QueryInfo(Criteria c) : Criteria(c), index(-1) {}
+    };
+}
+
+int Table::query(const KeyValue kvs[], std::size_t num) noexcept(false)
+{
+    int min_i = 0;
+    if (ctx->rows <= 1) return min_i;
+
+    std::vector<QueryInfo> info;
+    info.reserve(ctx->criteria);
+    for (int j = 0; j < ctx->criteria; ++j) try
+    {
+        info.push_back(Criteria(cell(0, j)));
+    }
+    catch (CriteriaFormatError& e)
+    {
+        char buf[200];
+        snprintf(buf, sizeof(buf), "Table row:%d, col:%d\n", 0, j + 1);
+        throw TableFormatError(std::string(buf) + e.what());
+    }
+
+    int matched = 0;
+    double min_d = (Criteria::max)();
+    for (int i = 1; i < ctx->rows; ++i)
+    {
+        double sum_d = 0;
+        for (int j = 0; j < (int)info.size(); ++j)
+        {
+            if (info[j].index == -2) continue;
+            try
+            {
+                info[j].bind(cell(i, j));
+            }
+            catch (std::exception& e)
+            {
+                char buf[200];
+                snprintf(buf, sizeof(buf), "Table row:%d, col:%d\n", i, j + 1);
+                throw TableFormatError(std::string(buf) + e.what());
+            }
+            if (info[j].index >= 0)
+            {
+                double d = info[j].distance(kvs[info[j].index]);
+                if (d < 0) continue; // never happen
+                sum_d += d;
+                if (sum_d >= min_d) goto next;
+                continue;
+            }
+            for (std::size_t k = 0; k < num; ++k)
+            {
+                double d = info[j].distance(kvs[k]);
+                if (d < 0) continue; // key mismatch
+                info[j].index = (int)k;
+                sum_d += d;
+                ++matched;
+                if (sum_d >= min_d) goto next;
+                break;
+            }
+            if (info[j].index == -1)
+                info[j].index = -2; // no match found
+        }
+        if (matched == 0)
+            break;
+        if (sum_d < min_d)
+        {
+            min_d = sum_d;
+            min_i = i;
+            if (min_d == 0) // current row is the best match already
+                break;
+        }
+    next:
+        ;
+    }
+    return min_i;
+}
+
+void Table::verify(int row, KeyValue kvs[], std::size_t num) noexcept(false)
+{
+    for (std::size_t k = 0; k < num; ++k)
+    {
+        if (kvs[k].type == NIL) continue;
+        for (int j = ctx->criteria; j < ctx->cols; ++j)
+        {
+            if (std::strcmp(cell(0, j), kvs[k].key)) continue;
+
+            KeyValue kv = kvs[k];
+            retrieve(row, j, kv);
+            if (kv.type == NUMBER)
+            {
+                if (kv.val.n != kvs[k].val.n)
+                {
+                    char buf[200];
+                    snprintf(buf, sizeof(buf), "Table row:%d, col:%d[%s], NUMBER %s != %s",
+                        row, j + 1, kv.key, std::string(kv.val.n).c_str(), std::string(kvs[k].val.n).c_str());
+                    throw TableDataError(std::string(buf));
+                }
+            }
+            else if (!kvs[k].val.s || !*kvs[k].val.s)
+            {
+                char buf[200];
+                snprintf(buf, sizeof(buf), "Table row:%d, col:%d[%s], STRING `%s` != NIL",
+                    row, j + 1, kv.key, kv.val.s);
+                throw TableDataError(std::string(buf));
+            }
+            else if (std::strcmp(kv.val.s, kvs[k].val.s))
+            {
+                char buf[200];
+                snprintf(buf, sizeof(buf), "Table row:%d, col:%d[%s], STRING `%s` != `%s`",
+                    row, j + 1, kv.key, kv.val.s, kvs[k].val.s);
+                throw TableDataError(std::string(buf));
+            }
+            break;
+        }
+    }
+}
+
+void Table::retrieve(int row, KeyValue kvs[], std::size_t num) noexcept(false)
+{
+    for (std::size_t k = 0; k < num; ++k)
+    {
+        for (int j = ctx->criteria; j < ctx->cols; ++j)
+        {
+            if (std::strcmp(cell(0, j), kvs[k].key)) continue;
+            retrieve(row, j, kvs[k]);
+            break;
+        }
+    }
+}
+
+void Table::retrieve(int i, int j, KeyValue& kv) noexcept(false) try
+{
+    String val = cell(i, j);
+    if (kv.type == NUMBER)
+    {
+        kv.val.n = val;
+    }
+    else
+    {
+        kv.val.s = val;
+        kv.type = STRING;
+    }
+}
+catch (std::exception& e)
+{
+    char buf[200];
+    snprintf(buf, sizeof(buf), "Table row:%d, col:%d[%s]\n", i, j + 1, kv.key);
+    throw TableDataError(std::string(buf) + e.what());
+}

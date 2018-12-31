@@ -197,6 +197,10 @@ namespace qmex
         String cell(int i, int j) const noexcept(false);
         void print(FILE* f) const noexcept;
         void parse(char* buf, std::size_t bufsz) noexcept(false);
+        int query(const KeyValue kvs[], std::size_t num) noexcept(false);
+        void verify(int row, KeyValue kvs[], std::size_t num) noexcept(false);
+        void retrieve(int row, KeyValue kvs[], std::size_t num) noexcept(false);
+        void retrieve(int i, int j, KeyValue& kv) noexcept(false);
     };
 }
 

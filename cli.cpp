@@ -73,13 +73,13 @@ int main(int argc, char* argv[]) try
         if (!kvs.empty()) try
         {
             ++num_queries;
-            int row = table.query(&kvs[0], kvs.size());
+            int row = table.query(&kvs[0], kvs.size(), QUERY_SUBSET | QUERY_SUPERSET);
             if (row == 0 && first_error_query_id == 0)
                 first_error_query_id = num_queries;
             if (row > 0)
             {
-                table.verify(row, &kvs[0], kvs.size());
-                table.retrieve(row, &kvs[0], kvs.size());
+                table.verify(row, &kvs[0], kvs.size(), QUERY_SUPERSET);
+                table.retrieve(row, &kvs[0], kvs.size(), QUERY_SUPERSET);
                 printf("[%d] row:%d", num_queries, row);
                 for (std::size_t i = 0; i < kvs.size(); ++i)
                     printf(" %s", kvs[i].toString().c_str());

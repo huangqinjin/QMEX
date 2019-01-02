@@ -179,6 +179,25 @@ namespace qmex
             : ValueTypeError(msg) {}
     };
 
+    struct TooManyKeys : std::invalid_argument
+    {
+        explicit TooManyKeys(std::string msg)
+            : std::invalid_argument(msg) {}
+    };
+
+    struct TooFewKeys : std::invalid_argument
+    {
+        explicit TooFewKeys(std::string msg)
+            : std::invalid_argument(msg) {}
+    };
+
+    enum QueryOption
+    {
+        QUERY_EXACTLY = 0,
+        QUERY_SUBSET = 1,
+        QUERY_SUPERSET = 2,
+    };
+
     class QMEX_API Table
     {
         struct Context;
@@ -197,9 +216,9 @@ namespace qmex
         String cell(int i, int j) const noexcept(false);
         void print(FILE* f) const noexcept;
         void parse(char* buf, std::size_t bufsz) noexcept(false);
-        int query(const KeyValue kvs[], std::size_t num) noexcept(false);
-        void verify(int row, KeyValue kvs[], std::size_t num) noexcept(false);
-        void retrieve(int row, KeyValue kvs[], std::size_t num) noexcept(false);
+        int query(const KeyValue kvs[], std::size_t num, unsigned options = QUERY_EXACTLY) noexcept(false);
+        void verify(int row, KeyValue kvs[], std::size_t num, unsigned options = QUERY_SUBSET) noexcept(false);
+        void retrieve(int row, KeyValue kvs[], std::size_t num, unsigned options = QUERY_SUBSET) noexcept(false);
         void retrieve(int i, int j, KeyValue& kv) noexcept(false);
     };
 }

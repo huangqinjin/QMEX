@@ -517,11 +517,12 @@ namespace
     struct QueryInfo : Criteria
     {
         int index; // of matched kvs[], -1 not matched yet, -2 no match found.
-        QueryInfo(Criteria c) : Criteria(c), index(-1) {}
+        int count;
+        QueryInfo(Criteria c) : Criteria(c), index(-1), count(0) {}
     };
 }
 
-int Table::query(const KeyValue kvs[], std::size_t num) noexcept(false)
+int Table::query(const KeyValue kvs[], std::size_t num, unsigned options) noexcept(false)
 {
     int min_i = 0;
     if (ctx->rows <= 1) return min_i;
@@ -576,7 +577,33 @@ int Table::query(const KeyValue kvs[], std::size_t num) noexcept(false)
                 break;
             }
             if (info[j].index == -1)
+            {
                 info[j].index = -2; // no match found
+                if (!(options & QUERY_SUBSET))
+                {
+                    std::string msg = "Query requires Criteria [" + std::string(info[j].key);
+                    msg.resize(msg.size() - 2);
+                    msg[msg.size() - 1] = ']';
+                    throw TooFewKeys(msg);
+                }
+            }
+        }
+        if (!(options & QUERY_SUPERSET))
+        {
+            options |= QUERY_SUPERSET;
+
+            for (std::size_t j = 0; j < info.size(); ++j)
+            {
+                if (info[j].index < 0 || info[j].index >= (int)info.size())
+                    continue;
+                info[info[j].index].count += 1;
+            }
+
+            for (std::size_t j = 0; j < (std::min)(info.size(), num); ++j)
+            {
+                if (info[j].count == 0)
+                    throw TooManyKeys('[' + std::string(kvs[j].key) + "] not Criteria");
+            }
         }
         if (matched == 0)
             break;
@@ -593,14 +620,17 @@ int Table::query(const KeyValue kvs[], std::size_t num) noexcept(false)
     return min_i;
 }
 
-void Table::verify(int row, KeyValue kvs[], std::size_t num) noexcept(false)
+void Table::verify(int row, KeyValue kvs[], std::size_t num, unsigned options) noexcept(false)
 {
     for (std::size_t k = 0; k < num; ++k)
     {
-        if (kvs[k].type == NIL) continue;
+        if ((options & QUERY_SUPERSET) && kvs[k].type == NIL) continue;
+        bool matched = false;
         for (int j = ctx->criteria; j < ctx->cols; ++j)
         {
             if (std::strcmp(cell(0, j), kvs[k].key)) continue;
+            matched = true;
+            if (kvs[k].type == NIL) break;
 
             KeyValue kv = kvs[k];
             retrieve(row, j, kv);
@@ -630,19 +660,25 @@ void Table::verify(int row, KeyValue kvs[], std::size_t num) noexcept(false)
             }
             break;
         }
+        if (!matched && !(options & QUERY_SUPERSET))
+            throw TooManyKeys("Table no data column [" + std::string(kvs[k].key) + ']');
     }
 }
 
-void Table::retrieve(int row, KeyValue kvs[], std::size_t num) noexcept(false)
+void Table::retrieve(int row, KeyValue kvs[], std::size_t num, unsigned options) noexcept(false)
 {
     for (std::size_t k = 0; k < num; ++k)
     {
+        bool matched = false;
         for (int j = ctx->criteria; j < ctx->cols; ++j)
         {
             if (std::strcmp(cell(0, j), kvs[k].key)) continue;
             retrieve(row, j, kvs[k]);
+            matched = true;
             break;
         }
+        if (!matched && !(options & QUERY_SUPERSET))
+            throw TooManyKeys("Retrieve ["+ std::string(kvs[k].key) + "] failed");
     }
 }
 

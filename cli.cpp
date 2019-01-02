@@ -68,6 +68,15 @@ int main(int argc, char* argv[]) try
             {
                 kvs[i] = KeyValue(kvs[i].key, p + 1);
                 const_cast<char&>(*p) = '\0';
+                try
+                {
+                    kvs[i].val.n = kvs[i].val.s;
+                    kvs[i].type = NUMBER;
+                }
+                catch (std::exception&)
+                {
+
+                }
             }
         }
         if (!kvs.empty()) try

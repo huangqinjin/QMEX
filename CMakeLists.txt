@@ -12,6 +12,10 @@ add_library(${PROJECT_NAME} qmex.cpp)
 add_library(${PACKAGE_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 target_include_directories(${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>)
 
+find_package(Lua REQUIRED)
+target_include_directories(${PROJECT_NAME} PUBLIC ${LUA_INCLUDE_DIR})
+target_link_libraries(${PROJECT_NAME} PUBLIC ${LUA_LIBRARIES})
+
 get_target_property(PROJECT_LIBRARY_TYPE ${PROJECT_NAME} TYPE)
 string(TOUPPER ${PROJECT_NAME} PROJECT_UPPER_NAME)
 string(MAKE_C_IDENTIFIER ${PROJECT_UPPER_NAME} PROJECT_UPPER_NAME)

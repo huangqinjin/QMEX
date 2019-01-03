@@ -13,6 +13,7 @@
 #include <cassert>
 
 #include "qmex.hpp"
+#include "lua.hpp"
 
 using namespace qmex;
 
@@ -72,6 +73,117 @@ namespace
             if (q) *q = c;
         }
     };
+
+    struct LuaStack
+    {
+        lua_State* const L;
+        const int s;
+        int n;
+        LuaStack(lua_State* L, int n) : L(L), s(lua_gettop(L)), n(n) {}
+        ~LuaStack() { lua_pop(L, n); assert(lua_gettop(L) == s); }
+    };
+
+    struct LuaExpr
+    {
+        const char* expr;
+        std::size_t len;
+        explicit LuaExpr(const char* expr) : expr(expr), len(0) {}
+
+        static const char* read(lua_State* L, void* ud, size_t* size) noexcept
+        {
+            LuaExpr* t = static_cast<LuaExpr*>(ud);
+            if (t->expr == nullptr) return nullptr;
+            if (t->len == 0)
+            {
+                t->len = std::strlen(t->expr);
+                *size = 6;
+                return "return";
+            }
+            *size = t->len;
+            const char* expr = t->expr;
+            t->expr = nullptr;
+            return expr;
+        }
+    };
+
+    void LuaValue(lua_State* L, KeyValue& kv) noexcept(false)
+    {
+        if (kv.type == NUMBER || (kv.type == NIL && lua_type(L, -1) == LUA_TNUMBER))
+        {
+            int isnum = 0;
+            lua_Number n = lua_tonumberx(L, -1, &isnum);
+            if (isnum) { kv.val.n = n; kv.type = NUMBER; }
+            else goto error;
+        }
+        else if (lua_isstring(L, -1))
+        {
+            if (lua_getglobal(L, "qmex") != LUA_TTABLE)
+            {
+                lua_pop(L, 1);
+                lua_newtable(L);
+                lua_pushvalue(L, -1);
+                lua_setglobal(L, "qmex");
+            }
+            lua_insert(L, -2);
+
+            kv.type = STRING;
+            kv.val.s = lua_tostring(L, -1);
+            lua_seti(L, -2, (lua_Integer)(intptr_t)kv.val.s);
+        }
+        else error:
+        {
+            const char* types[] = {
+                "NONE",
+                "NIL",
+                "BOOLEAN",
+                "LIGHTUSERDATA",
+                "NUMBER",
+                "STRING",
+                "TABLE",
+                "FUNCTION",
+                "USERDATA",
+                "THREAD",
+            };
+
+            int t = lua_type(L, -1) + 1;
+            if (t < 0 || t >= sizeof(types) / sizeof(types[0]))
+            {
+                char buf[200];
+                snprintf(buf, sizeof(buf), "unknown lua type %d, requires NUMBER or STRING", t - 1);
+                throw LuaError(buf);
+            }
+            else
+            {
+                char buf[200];
+                snprintf(buf, sizeof(buf), "wrong lua type %s, requires NUMBER or STRING", types[t]);
+                throw LuaError(buf);
+            }
+        }
+    }
+
+    void EvalLua(lua_State* L, const char* expr, KeyValue& kv) noexcept(false)
+    {
+        LuaExpr t(expr);
+        LuaStack s(L, 1);
+
+        if (lua_load(L, &LuaExpr::read, &t, kv.key, "t"))
+            throw LuaError(lua_tostring(L, -1));
+
+        if (lua_pcall(L, 0, 1, 0))
+            throw LuaError(lua_tostring(L, -1));
+        ++s.n;
+        lua_geti(L, -1, 1);
+        LuaValue(L, kv);
+    }
+
+    void CallLua(lua_State* L, const char* expr, KeyValue& kv) noexcept(false)
+    {
+        LuaStack s(L, 1);
+        lua_getglobal(L, expr);
+        if (lua_pcall(L, 0, 1, 0))
+            throw LuaError(lua_tostring(L, -1));
+        LuaValue(L, kv);
+    }
 }
 
 
@@ -393,10 +505,23 @@ struct Table::Context
     int rows;
     int cols;
     int criteria;
+    bool ownL;
+    lua_State* L;
+
+    lua_State* lua()
+    {
+        if (L == nullptr)
+        {
+            ownL = true;
+            L = luaL_newstate();
+            luaL_openlibs(L);
+        }
+        return L;
+    }
 };
 
-Table::Table() noexcept : ctx(new Context) {}
-Table::~Table() noexcept { delete ctx; }
+Table::Table() noexcept : ctx(new Context) { ctx->ownL = false; ctx->L = nullptr; }
+Table::~Table() noexcept { if (ctx->ownL && ctx->L) lua_close(ctx->L); delete ctx; }
 
 void Table::clear() noexcept
 {
@@ -404,6 +529,12 @@ void Table::clear() noexcept
     ctx->rows = 0;
     ctx->cols = 0;
     ctx->criteria = 0;
+    if (ctx->ownL && ctx->L)
+    {
+        lua_close(ctx->L);
+        ctx->ownL = false;
+        ctx->L = nullptr;
+    }
 }
 
 int Table::rows() const noexcept { return ctx->rows; }
@@ -435,12 +566,14 @@ void Table::print(FILE* f) const noexcept
     }
 }
 
-void Table::parse(char* buf, std::size_t bufsz) noexcept(false)
+void Table::parse(char* buf, std::size_t bufsz, lua_State* L) noexcept(false)
 {
     if (buf == nullptr || bufsz == 0 || buf[bufsz - 1] != '\0')
         throw std::invalid_argument("invalid buffer input for table parse");
 
     clear();
+    ctx->ownL = false;
+    ctx->L = L;
 
     int j = 0, criteria = 0;
     String cell = nullptr;
@@ -685,7 +818,16 @@ void Table::retrieve(int row, KeyValue kvs[], std::size_t num, unsigned options)
 void Table::retrieve(int i, int j, KeyValue& kv) noexcept(false) try
 {
     String val = cell(i, j);
-    if (kv.type == NUMBER)
+    if (val[0] == '{')
+    {
+        EvalLua(ctx->lua(), val, kv);
+    }
+    else if (val[0] == '[')
+    {
+        StringGuard _(val + std::strlen(val) - 1);
+        CallLua(ctx->lua(), val + 1, kv);
+    }
+    else if (kv.type == NUMBER)
     {
         kv.val.n = val;
     }

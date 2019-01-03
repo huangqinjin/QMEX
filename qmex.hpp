@@ -29,6 +29,8 @@
 #include <cstdio>
 #include <cstring>
 
+struct lua_State;
+
 namespace qmex
 {
     /// Immutable, non-owning and null-terminated string
@@ -191,6 +193,12 @@ namespace qmex
             : std::invalid_argument(msg) {}
     };
 
+    struct LuaError : std::runtime_error
+    {
+        explicit LuaError(std::string msg)
+            : std::runtime_error(msg) {}
+    };
+
     enum QueryOption
     {
         QUERY_EXACTLY = 0,
@@ -215,7 +223,7 @@ namespace qmex
         int criteria() const noexcept;
         String cell(int i, int j) const noexcept(false);
         void print(FILE* f) const noexcept;
-        void parse(char* buf, std::size_t bufsz) noexcept(false);
+        void parse(char* buf, std::size_t bufsz, lua_State* L = nullptr) noexcept(false);
         int query(const KeyValue kvs[], std::size_t num, unsigned options = QUERY_EXACTLY) noexcept(false);
         void verify(int row, KeyValue kvs[], std::size_t num, unsigned options = QUERY_SUBSET) noexcept(false);
         void retrieve(int row, KeyValue kvs[], std::size_t num, unsigned options = QUERY_SUBSET) noexcept(false);

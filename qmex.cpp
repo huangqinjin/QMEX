@@ -117,18 +117,10 @@ namespace
         }
         else if (lua_isstring(L, -1))
         {
-            if (lua_getglobal(L, "qmex") != LUA_TTABLE)
-            {
-                lua_pop(L, 1);
-                lua_newtable(L);
-                lua_pushvalue(L, -1);
-                lua_setglobal(L, "qmex");
-            }
-            lua_insert(L, -2);
-
+            lua_pushvalue(L, -1); // balance stack
             kv.type = STRING;
             kv.val.s = lua_tostring(L, -1);
-            lua_seti(L, -2, (lua_Integer)(intptr_t)kv.val.s);
+            luaL_ref(L, LUA_REGISTRYINDEX); //TODO keep pointer valid
         }
         else error:
         {

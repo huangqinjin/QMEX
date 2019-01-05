@@ -153,13 +153,24 @@ namespace
         }
     }
 
-    void EvalLua(lua_State* L, const char* expr, KeyValue& kv) noexcept(false)
+    void EvalLua(lua_State* L, const char* expr, KeyValue& kv, int id) noexcept(false)
     {
         LuaExpr t(expr);
-        LuaStack s(L, 1);
+        LuaStack s(L, 3);
 
-        if (lua_load(L, &LuaExpr::read, &t, kv.key, "t"))
-            throw LuaError(lua_tostring(L, -1));
+        lua_pushglobaltable(L);
+        lua_pushfstring(L, "%s%d", kv.key, id);
+        lua_pushvalue(L, -1);
+        if (lua_gettable(L, -3) != LUA_TFUNCTION)
+        {
+            lua_pop(L, 1);
+            if (lua_load(L, &LuaExpr::read, &t, kv.key, "t"))
+                throw LuaError(lua_tostring(L, -1));
+            lua_pushvalue(L, -1);
+            lua_insert(L, -3);
+            lua_settable(L, -4);
+            lua_pushvalue(L, -1);
+        }
 
         if (lua_pcall(L, 0, 1, 0))
             throw LuaError(lua_tostring(L, -1));
@@ -812,7 +823,7 @@ void Table::retrieve(int i, int j, KeyValue& kv) noexcept(false) try
     String val = cell(i, j);
     if (val[0] == '{')
     {
-        EvalLua(ctx->lua(), val, kv);
+        EvalLua(ctx->lua(), val, kv, i);
     }
     else if (val[0] == '[')
     {

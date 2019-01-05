@@ -181,8 +181,20 @@ namespace
 
     void CallLua(lua_State* L, const char* expr, KeyValue& kv) noexcept(false)
     {
-        LuaStack s(L, 1);
-        lua_getglobal(L, expr);
+        LuaStack s(L, 2);
+
+        lua_pushglobaltable(L);
+        for (const char* p = expr; ;)
+        {
+            StringGuard s = std::strchr(p, '.');
+            int t = lua_getfield(L, -1, p);
+            if (!s) break;
+            if (t != LUA_TTABLE)
+                throw LuaError(std::string(expr) + " is not TABLE");
+            p = s + 1;
+            lua_remove(L, -2);
+        }
+
         if (lua_pcall(L, 0, 1, 0))
             throw LuaError(lua_tostring(L, -1));
         LuaValue(L, kv);

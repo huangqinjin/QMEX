@@ -227,7 +227,8 @@ namespace qmex
         int query(const KeyValue kvs[], std::size_t num, unsigned options = QUERY_EXACTLY) noexcept(false);
         void verify(int row, KeyValue kvs[], std::size_t num, unsigned options = QUERY_SUBSET) noexcept(false);
         void retrieve(int row, KeyValue kvs[], std::size_t num, unsigned options = QUERY_SUBSET) noexcept(false);
-        void retrieve(int i, int j, KeyValue& kv) noexcept(false);
+        bool retrieve(int i, int j, KeyValue& kv) noexcept(false);
+        void context(const KeyValue kvs[], std::size_t num) noexcept;
     };
 }
 

@@ -770,6 +770,7 @@ int Table::query(const KeyValue kvs[], std::size_t num, unsigned options) noexce
 
 void Table::verify(int row, KeyValue kvs[], std::size_t num, unsigned options) noexcept(false)
 {
+    bool lua = false;
     for (std::size_t k = 0; k < num; ++k)
     {
         if ((options & QUERY_SUPERSET) && kvs[k].type == NIL) continue;
@@ -779,6 +780,17 @@ void Table::verify(int row, KeyValue kvs[], std::size_t num, unsigned options) n
             if (std::strcmp(cell(0, j), kvs[k].key)) continue;
             matched = true;
             if (kvs[k].type == NIL) break;
+
+            if (!lua)
+            {
+                String val = cell(row, j);
+                lua = val[0] == '{' || val[0] == '[';
+                if (lua)
+                {
+                    context(kvs, num);
+                    context(nullptr, 0);
+                }
+            }
 
             KeyValue kv = kvs[k];
             retrieve(row, j, kv);
@@ -815,12 +827,25 @@ void Table::verify(int row, KeyValue kvs[], std::size_t num, unsigned options) n
 
 void Table::retrieve(int row, KeyValue kvs[], std::size_t num, unsigned options) noexcept(false)
 {
+    bool lua = false;
     for (std::size_t k = 0; k < num; ++k)
     {
         bool matched = false;
         for (int j = ctx->criteria; j < ctx->cols; ++j)
         {
             if (std::strcmp(cell(0, j), kvs[k].key)) continue;
+
+            if (!lua)
+            {
+                String val = cell(row, j);
+                lua = val[0] == '{' || val[0] == '[';
+                if (lua)
+                {
+                    context(kvs, num);
+                    context(nullptr, 0);
+                }
+            }
+
             retrieve(row, j, kvs[k]);
             matched = true;
             break;
@@ -830,9 +855,29 @@ void Table::retrieve(int row, KeyValue kvs[], std::size_t num, unsigned options)
     }
 }
 
-void Table::retrieve(int i, int j, KeyValue& kv) noexcept(false) try
+bool Table::retrieve(int i, int j, KeyValue& kv) noexcept(false) try
 {
     String val = cell(i, j);
+
+    bool lua = val[0] == '{' || val[0] == '[';
+    if (lua)
+    {
+        {
+            LuaStack s(ctx->lua(), 1);
+            if (lua_getglobal(ctx->lua(), kv.key) != LUA_TNIL)
+            {
+                LuaValue(ctx->lua(), kv);
+                return lua;
+            }
+        }
+        for (int k = j - 1; k >= ctx->criteria; --k)
+        {
+            KeyValue ks(cell(0, k));
+            if (retrieve(i, k, ks)) break;
+            else context(&ks, 1);
+        }
+    }
+
     if (val[0] == '{')
     {
         EvalLua(ctx->lua(), val, kv, i);
@@ -851,10 +896,36 @@ void Table::retrieve(int i, int j, KeyValue& kv) noexcept(false) try
         kv.val.s = val;
         kv.type = STRING;
     }
+
+    if (lua) context(&kv, 1);
+    return lua;
 }
 catch (std::exception& e)
 {
     char buf[200];
     snprintf(buf, sizeof(buf), "Table row:%d, col:%d[%s]\n", i, j + 1, kv.key);
     throw TableDataError(std::string(buf) + e.what());
+}
+
+void Table::context(const KeyValue kvs[], std::size_t num) noexcept
+{
+    if (!kvs || !num)
+    {
+        for (int j = ctx->criteria; j < ctx->cols; ++j)
+        {
+            KeyValue kv(cell(0, j));
+            context(&kv, 1);
+        }
+        return;
+    }
+    for (std::size_t i = 0; i < num; ++i)
+    {
+        if (kvs[i].type == NUMBER)
+            lua_pushnumber(ctx->lua(), kvs[i].val.n);
+        else if (kvs[i].type == STRING)
+            lua_pushstring(ctx->lua(), kvs[i].val.s);
+        else
+            lua_pushnil(ctx->lua());
+        lua_setglobal(ctx->lua(), kvs[i].key);
+    }
 }

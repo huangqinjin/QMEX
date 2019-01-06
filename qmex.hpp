@@ -199,6 +199,11 @@ namespace qmex
             : std::runtime_error(msg) {}
     };
 
+    struct LuaJIT
+    {
+        virtual void jit(lua_State* L, const char* name) = 0;
+    };
+
     enum QueryOption
     {
         QUERY_EXACTLY = 0,
@@ -223,7 +228,7 @@ namespace qmex
         int criteria() const noexcept;
         String cell(int i, int j) const noexcept(false);
         void print(FILE* f) const noexcept;
-        void parse(char* buf, std::size_t bufsz, lua_State* L = nullptr) noexcept(false);
+        void parse(char* buf, std::size_t bufsz, lua_State* L = nullptr, LuaJIT* jit = nullptr) noexcept(false);
         int query(const KeyValue kvs[], std::size_t num, unsigned options = QUERY_EXACTLY) noexcept(false);
         void verify(int row, KeyValue kvs[], std::size_t num, unsigned options = QUERY_SUBSET) noexcept(false);
         void retrieve(int row, KeyValue kvs[], std::size_t num, unsigned options = QUERY_SUBSET) noexcept(false);

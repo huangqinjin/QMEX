@@ -179,7 +179,7 @@ namespace
         LuaValue(L, kv);
     }
 
-    void CallLua(lua_State* L, const char* expr, KeyValue& kv) noexcept(false)
+    void CallLua(lua_State* L, const char* expr, KeyValue& kv, LuaJIT* jit) noexcept(false) try
     {
         LuaStack s(L, 2);
 
@@ -197,7 +197,20 @@ namespace
 
         if (lua_pcall(L, 0, 1, 0))
             throw LuaError(lua_tostring(L, -1));
+        jit = nullptr;
         LuaValue(L, kv);
+    }
+    catch (LuaError&)
+    {
+        if (jit)
+        {
+            jit->jit(L, expr);
+            CallLua(L, expr, kv, nullptr);
+        }
+        else
+        {
+            throw;
+        }
     }
 }
 
@@ -522,6 +535,7 @@ struct Table::Context
     int criteria;
     bool ownL;
     lua_State* L;
+    LuaJIT* jit;
 
     lua_State* lua()
     {
@@ -530,6 +544,7 @@ struct Table::Context
             ownL = true;
             L = luaL_newstate();
             luaL_openlibs(L);
+            jit = nullptr;
         }
         return L;
     }
@@ -581,7 +596,7 @@ void Table::print(FILE* f) const noexcept
     }
 }
 
-void Table::parse(char* buf, std::size_t bufsz, lua_State* L) noexcept(false)
+void Table::parse(char* buf, std::size_t bufsz, lua_State* L, LuaJIT* jit) noexcept(false)
 {
     if (buf == nullptr || bufsz == 0 || buf[bufsz - 1] != '\0')
         throw std::invalid_argument("invalid buffer input for table parse");
@@ -589,6 +604,7 @@ void Table::parse(char* buf, std::size_t bufsz, lua_State* L) noexcept(false)
     clear();
     ctx->ownL = false;
     ctx->L = L;
+    ctx->jit = jit;
 
     int j = 0, criteria = 0;
     String cell = nullptr;
@@ -885,7 +901,7 @@ bool Table::retrieve(int i, int j, KeyValue& kv) noexcept(false) try
     else if (val[0] == '[')
     {
         StringGuard _(val + std::strlen(val) - 1);
-        CallLua(ctx->lua(), val + 1, kv);
+        CallLua(ctx->lua(), val + 1, kv, ctx->jit);
     }
     else if (kv.type == NUMBER)
     {

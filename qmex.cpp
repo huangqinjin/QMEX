@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <limits>
 #include <vector>
+#include <new>
 #include <climits>
 #include <cassert>
 
@@ -988,4 +989,183 @@ void Table::context(const KeyValue kvs[], std::size_t num) noexcept
             lua_pushnil(ctx->lua());
         lua_setglobal(ctx->lua(), kvs[i].key);
     }
+}
+
+
+namespace
+{
+    int newtable(lua_State* L)
+    {
+        new (lua_newuserdata(L, sizeof(Table))) Table;
+        luaL_setmetatable(L, "qmex::Table");
+        return 1;
+    }
+
+    Table* totable(lua_State* L)
+    {
+        return (Table*)luaL_checkudata(L, 1, "qmex::Table");
+    }
+
+    bool isclosed(Table* t)
+    {
+        for (std::size_t i = 0; i < sizeof(Table); ++i)
+            if (reinterpret_cast<unsigned char*>(t)[i])
+                return false;
+        return true;
+    }
+
+    Table* checktable(lua_State* L)
+    {
+        Table* t = totable(L);
+        if (isclosed(t))
+            luaL_error(L, "attempt to use a closed table");
+        return t;
+    }
+
+    int deltable(lua_State* L)
+    {
+        Table* t = totable(L);
+        if (!isclosed(t))
+        {
+            t->~Table();
+            std::memset(t, 0, sizeof(Table));
+            lua_pushnil(L);
+            lua_setuservalue(L, 1);
+        }
+        return 0;
+    }
+
+    std::vector<KeyValue> tokvs(lua_State* L, int idx)
+    {
+        std::vector<KeyValue> kvs;
+        kvs.reserve(lua_rawlen(L, idx));
+        lua_pushnil(L);
+        while (lua_next(L, idx))
+        {
+            if (lua_type(L, -2) != LUA_TSTRING) continue;
+            switch (lua_type(L, -1))
+            {
+            case LUA_TNUMBER:
+                kvs.push_back(KeyValue(lua_tostring(L, -2), lua_tonumber(L, -1)));
+                break;
+            case LUA_TSTRING:
+                kvs.push_back(KeyValue(lua_tostring(L, -2), lua_tostring(L, -1)));
+                break;
+            case LUA_TNIL:
+                kvs.push_back(KeyValue(lua_tostring(L, -2)));
+                break;
+            }
+            lua_pop(L, 1);
+        }
+        return kvs;
+    }
+
+    int parse(lua_State* L)
+    {
+        Table* t = checktable(L);
+        std::size_t len  = 0;
+        const char* data = luaL_checklstring(L, 2, &len);
+        void* buf = lua_newuserdata(L, len + 1);
+        std::memcpy(buf, data, len + 1);
+        lua_setuservalue(L, 1);
+        t->parse((char*)buf, len + 1, L);
+        return 0;
+    }
+
+    int query(lua_State* L)
+    {
+        Table* t = checktable(L);
+        luaL_checktype(L, 2, LUA_TTABLE);
+        unsigned options = (unsigned)luaL_optinteger(L, 3, QUERY_EXACTLY);
+        std::vector<KeyValue> kvs = tokvs(L, 2);
+        int row = t->query(kvs.empty() ? nullptr : &kvs[0], kvs.size(), options);
+        lua_pushinteger(L, row);
+        return 1;
+    }
+
+    int verify(lua_State* L)
+    {
+        Table* t = checktable(L);
+        int row = (int)luaL_checkinteger(L, 2);
+        luaL_checktype(L, 3, LUA_TTABLE);
+        unsigned options = (unsigned)luaL_optinteger(L, 4, QUERY_SUBSET);
+        std::vector<KeyValue> kvs = tokvs(L, 3);
+        t->verify(row, kvs.empty() ? nullptr : &kvs[0], kvs.size(), options);
+        return 0;
+    }
+
+    int retrieve(lua_State* L)
+    {
+        Table* t = checktable(L);
+        int row = (int)luaL_checkinteger(L, 2);
+        luaL_checktype(L, 3, LUA_TTABLE);
+        unsigned options = (unsigned)luaL_optinteger(L, 4, QUERY_SUBSET);
+        std::vector<KeyValue> kvs = tokvs(L, 3);
+        t->retrieve(row, kvs.empty() ? nullptr : &kvs[0], kvs.size(), options);
+        for (std::size_t i = 0; i < kvs.size(); ++i)
+        {
+            lua_pushstring(L, kvs[i].key);
+            if (kvs[i].type == NUMBER)
+                lua_pushnumber(L, kvs[i].val.n);
+            else if (kvs[i].type == STRING)
+                lua_pushstring(L, kvs[i].val.s);
+            else
+                lua_pushnil(L);
+            lua_settable(L, 3);
+        }
+        return 0;
+    }
+}
+
+extern "C" int luaopen_qmex(lua_State* L)
+{
+    if (luaL_newmetatable(L, "qmex::Table"))
+    {
+        const luaL_Reg metameth[] = {
+            {"__index", nullptr},  // place holder
+            {"__gc", deltable},
+            {"parse", parse},
+            {"query", query},
+            {"verify", verify},
+            {"retrieve", retrieve},
+            {nullptr, nullptr}
+        };
+        luaL_setfuncs(L, metameth, 0);
+    }
+    lua_setfield(L, -1, "__index");
+
+    lua_createtable(L, 0, 1 + TypeKinds + OpKinds + 3);
+
+    lua_pushliteral(L, "Table");
+    lua_pushcfunction(L, newtable);
+    lua_settable(L, -3);
+
+    for (int i = 0; i < TypeKinds; ++i)
+    {
+        lua_pushstring(L, TypeName[i]);
+        lua_pushinteger(L, i);
+        lua_settable(L, -3);
+    }
+
+    for (int i = 0; i < OpKinds; ++i)
+    {
+        lua_pushstring(L, OpName[i]);
+        lua_pushinteger(L, i);
+        lua_settable(L, -3);
+    }
+
+    const char* const options[] = {
+        "QUERY_EXACTLY",
+        "QUERY_SUBSET",
+        "QUERY_SUPERSET",
+    };
+
+    for (int i = 0; i < sizeof(options) / sizeof(options[0]); ++i)
+    {
+        lua_pushstring(L, options[i]);
+        lua_pushinteger(L, i);
+        lua_settable(L, -3);
+    }
+
+    return 1;
 }

@@ -31,6 +31,15 @@
 
 struct lua_State;
 
+///
+/// Do not directly call this function, use
+///    luaL_requiref(L, "qmex", luaopen_qmex, 1);
+///    lua_pop(L, 1);
+/// or
+///    require "qmex"
+///
+extern "C" QMEX_API int luaopen_qmex(lua_State* L);
+
 namespace qmex
 {
     /// Immutable, non-owning and null-terminated string

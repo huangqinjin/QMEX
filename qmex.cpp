@@ -994,29 +994,66 @@ void Table::context(const KeyValue kvs[], std::size_t num) noexcept
 
 namespace
 {
+    struct LuaTable : Table, LuaJIT
+    {
+        int ref;
+        bool valid;
+
+        LuaTable() : ref(0), valid(false) {}
+
+        void release(lua_State* L)
+        {
+            if (valid) luaL_unref(L, LUA_REGISTRYINDEX, ref);
+            valid = false;
+        }
+
+        void jit(lua_State* L, const char* name) override
+        {
+            LuaStack s(L, 1);
+            if (lua_rawgeti(L, LUA_REGISTRYINDEX, ref) == LUA_TTABLE)
+            {
+                lua_getfield(L, -1, "jit");
+                lua_insert(L, -2);
+                lua_pushstring(L, name);
+                if (lua_pcall(L, 2, 1, 0))
+                    throw LuaError(lua_tostring(L, -1));
+            }
+            else
+            {
+                throw LuaError("JIT not TABLE");
+            }
+        }
+    };
+
+    int newjit(lua_State* L)
+    {
+        lua_createtable(L, 0, 1);
+        return 1;
+    }
+
     int newtable(lua_State* L)
     {
-        new (lua_newuserdata(L, sizeof(Table))) Table;
+        new (lua_newuserdata(L, sizeof(LuaTable))) LuaTable;
         luaL_setmetatable(L, "qmex::Table");
         return 1;
     }
 
-    Table* totable(lua_State* L)
+    LuaTable* totable(lua_State* L)
     {
-        return (Table*)luaL_checkudata(L, 1, "qmex::Table");
+        return (LuaTable*)luaL_checkudata(L, 1, "qmex::Table");
     }
 
-    bool isclosed(Table* t)
+    bool isclosed(LuaTable* t)
     {
-        for (std::size_t i = 0; i < sizeof(Table); ++i)
+        for (std::size_t i = 0; i < sizeof(LuaTable); ++i)
             if (reinterpret_cast<unsigned char*>(t)[i])
                 return false;
         return true;
     }
 
-    Table* checktable(lua_State* L)
+    LuaTable* checktable(lua_State* L)
     {
-        Table* t = totable(L);
+        LuaTable* t = totable(L);
         if (isclosed(t))
             luaL_error(L, "attempt to use a closed table");
         return t;
@@ -1024,11 +1061,12 @@ namespace
 
     int deltable(lua_State* L)
     {
-        Table* t = totable(L);
+        LuaTable* t = totable(L);
         if (!isclosed(t))
         {
-            t->~Table();
-            std::memset(t, 0, sizeof(Table));
+            t->release(L);
+            t->~LuaTable();
+            std::memset(t, 0, sizeof(LuaTable));
             lua_pushnil(L);
             lua_setuservalue(L, 1);
         }
@@ -1062,19 +1100,30 @@ namespace
 
     int parse(lua_State* L)
     {
-        Table* t = checktable(L);
+        LuaTable* t = checktable(L);
         std::size_t len  = 0;
         const char* data = luaL_checklstring(L, 2, &len);
+
+        const bool jit = lua_gettop(L) >= 3;
+        if (jit) luaL_checktype(L, 3, LUA_TTABLE);
+        t->release(L);
+        if (jit)
+        {
+            lua_pushvalue(L, 3);
+            t->ref = luaL_ref(L, LUA_REGISTRYINDEX);
+            t->valid = true;
+        }
+
         void* buf = lua_newuserdata(L, len + 1);
         std::memcpy(buf, data, len + 1);
         lua_setuservalue(L, 1);
-        t->parse((char*)buf, len + 1, L);
+        t->parse((char*)buf, len + 1, L, jit ? t : nullptr);
         return 0;
     }
 
     int query(lua_State* L)
     {
-        Table* t = checktable(L);
+        LuaTable* t = checktable(L);
         luaL_checktype(L, 2, LUA_TTABLE);
         unsigned options = (unsigned)luaL_optinteger(L, 3, QUERY_EXACTLY);
         std::vector<KeyValue> kvs = tokvs(L, 2);
@@ -1085,7 +1134,7 @@ namespace
 
     int verify(lua_State* L)
     {
-        Table* t = checktable(L);
+        LuaTable* t = checktable(L);
         int row = (int)luaL_checkinteger(L, 2);
         luaL_checktype(L, 3, LUA_TTABLE);
         unsigned options = (unsigned)luaL_optinteger(L, 4, QUERY_SUBSET);
@@ -1096,7 +1145,7 @@ namespace
 
     int retrieve(lua_State* L)
     {
-        Table* t = checktable(L);
+        LuaTable* t = checktable(L);
         int row = (int)luaL_checkinteger(L, 2);
         luaL_checktype(L, 3, LUA_TTABLE);
         unsigned options = (unsigned)luaL_optinteger(L, 4, QUERY_SUBSET);
@@ -1134,7 +1183,11 @@ extern "C" int luaopen_qmex(lua_State* L)
     }
     lua_setfield(L, -1, "__index");
 
-    lua_createtable(L, 0, 1 + TypeKinds + OpKinds + 3);
+    lua_createtable(L, 0, 2 + TypeKinds + OpKinds + 3);
+
+    lua_pushliteral(L, "LuaJIT");
+    lua_pushcfunction(L, newjit);
+    lua_settable(L, -3);
 
     lua_pushliteral(L, "Table");
     lua_pushcfunction(L, newtable);

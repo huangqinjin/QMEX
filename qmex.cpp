@@ -1098,7 +1098,7 @@ namespace
         return kvs;
     }
 
-    int parse(lua_State* L)
+    int parse(lua_State* L) try
     {
         LuaTable* t = checktable(L);
         std::size_t len  = 0;
@@ -1120,8 +1120,12 @@ namespace
         t->parse((char*)buf, len + 1, L, jit ? t : nullptr);
         return 0;
     }
+    catch (std::exception& e)
+    {
+        return luaL_error(L, "%s", e.what());
+    }
 
-    int query(lua_State* L)
+    int query(lua_State* L) try
     {
         LuaTable* t = checktable(L);
         luaL_checktype(L, 2, LUA_TTABLE);
@@ -1131,8 +1135,12 @@ namespace
         lua_pushinteger(L, row);
         return 1;
     }
+    catch (std::exception& e)
+    {
+        return luaL_error(L, "%s", e.what());
+    }
 
-    int verify(lua_State* L)
+    int verify(lua_State* L) try
     {
         LuaTable* t = checktable(L);
         int row = (int)luaL_checkinteger(L, 2);
@@ -1142,8 +1150,12 @@ namespace
         t->verify(row, kvs.empty() ? nullptr : &kvs[0], kvs.size(), options);
         return 0;
     }
+    catch (std::exception& e)
+    {
+        return luaL_error(L, "%s", e.what());
+    }
 
-    int retrieve(lua_State* L)
+    int retrieve(lua_State* L) try
     {
         LuaTable* t = checktable(L);
         int row = (int)luaL_checkinteger(L, 2);
@@ -1163,6 +1175,10 @@ namespace
             lua_settable(L, 3);
         }
         return 0;
+    }
+    catch (std::exception& e)
+    {
+        return luaL_error(L, "%s", e.what());
     }
 }
 

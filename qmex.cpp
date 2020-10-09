@@ -1114,7 +1114,7 @@ namespace
             t->valid = true;
         }
 
-        void* buf = lua_newuserdata(L, len + 1);
+        void* buf = lua_newuserdatauv(L, len + 1, 0);
         std::memcpy(buf, data, len + 1);
         lua_setuservalue(L, 1);
         t->parse((char*)buf, len + 1, L, jit ? t : nullptr);
@@ -1189,6 +1189,7 @@ extern "C" int luaopen_qmex(lua_State* L)
         const luaL_Reg metameth[] = {
             {"__index", nullptr},  // place holder
             {"__gc", deltable},
+            {"__close", deltable},
             {"parse", parse},
             {"query", query},
             {"verify", verify},

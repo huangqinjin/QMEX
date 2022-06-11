@@ -6,6 +6,7 @@
 //          https://www.boost.org/LICENSE_1_0.txt)
 //
 #include "qmex.hpp"
+#include "lua.hpp"
 
 #include <typeinfo>
 #include <iostream>
@@ -21,6 +22,28 @@ int main(int argc, char* argv[]) try
     {
         printf("Usage: %s </path/to/file>\n", argv[0]);
         return 0;
+    }
+
+    const char* const ext = strrchr(argv[1], '.');
+
+    if (ext && strcmp(ext, ".lua") == 0)
+    {
+        lua_State* L = luaL_newstate();
+        luaL_openlibs(L);
+
+        luaL_requiref(L, "qmex", luaopen_qmex, 1);
+        lua_pop(L, 1);
+
+        int r = luaL_loadfile(L, argv[1]);
+        if (r == LUA_OK)
+        {
+            for (int i = 2; i < argc; ++i)
+                lua_pushstring(L, argv[i]);
+            r = lua_pcall(L, argc - 2, LUA_MULTRET, 0);
+        }
+        if (r != LUA_OK) fprintf(stderr, "ERROR: %s\n", lua_tostring(L, -1));
+        lua_close(L);
+        return r;
     }
 
     string content;

@@ -222,6 +222,7 @@ namespace qmex
 
     class QMEX_API Table
     {
+    protected:
         struct Context;
         Context* const ctx;
 

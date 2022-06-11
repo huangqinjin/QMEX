@@ -533,12 +533,13 @@ struct Table::Context
     int rows;
     int cols;
     int criteria;
+    int cache;
     bool ownL;
     bool init;
     lua_State* L;
     LuaJIT* jit;
 
-    Context() noexcept : ownL(false), init(false) {}
+    Context() noexcept : ownL(false), init(false), cache(0) {}
     ~Context() noexcept { clear(); }
 
     void clear() noexcept
@@ -548,7 +549,12 @@ struct Table::Context
         cols = 0;
         criteria = 0;
 
-        if (init && L && lua_getglobal(L, "QMEX_G") == LUA_TTABLE)
+        if (cache > 0)
+        {
+            lua_pushnil(L);
+            lua_setiuservalue(L, 1, cache);
+        }
+        else if (init && L && lua_getglobal(L, "QMEX_G") == LUA_TTABLE)
         {
             lua_pushnil(L);
             lua_seti(L, -2, (lua_Integer)(intptr_t)this);
@@ -563,6 +569,7 @@ struct Table::Context
         ownL = false;
         init = false;
         L = nullptr;
+        jit = nullptr;
     }
 
     void g() noexcept
@@ -578,9 +585,16 @@ struct Table::Context
 
     int local() noexcept
     {
-        g();
-        lua_geti(L, -1, (lua_Integer)(intptr_t)this);
-        lua_remove(L, -2);
+        if (cache > 0)
+        {
+            lua_getiuservalue(L, 1, cache);
+        }
+        else
+        {
+            g();
+            lua_geti(L, -1, (lua_Integer)(intptr_t)this);
+            lua_remove(L, -2);
+        }
         return lua_gettop(L);
     }
 
@@ -591,14 +605,21 @@ struct Table::Context
             ownL = true;
             L = luaL_newstate();
             luaL_openlibs(L);
-            jit = nullptr;
         }
         if (!init)
         {
-            LuaStack s(L, 1);
-            g();
-            lua_newtable(L);
-            lua_seti(L, -2, (lua_Integer)(intptr_t)this);
+            if (cache > 0)
+            {
+                lua_newtable(L);
+                lua_setiuservalue(L, 1, cache);
+            }
+            else
+            {
+                LuaStack s(L, 1);
+                g();
+                lua_newtable(L);
+                lua_seti(L, -2, (lua_Integer)(intptr_t)this);
+            }
             init = true;
         }
         return L;
@@ -999,11 +1020,18 @@ namespace
         UV_MIN,
         UV_BUF,
         UV_JIT,
+        UV_CACHE,
         UV_MAX,
     };
 
     struct LuaTable : Table, LuaJIT
     {
+        LuaTable(lua_State* L, int cache)
+        {
+            ctx->L = L;
+            ctx->cache = cache;
+        }
+
         void jit(lua_State* L, const char* name) override
         {
             LuaStack s(L, 1);
@@ -1016,7 +1044,7 @@ namespace
 
     int newtable(lua_State* L)
     {
-        new (lua_newuserdatauv(L, sizeof(LuaTable), UV_MAX - UV_MIN - 1)) LuaTable;
+        new (lua_newuserdatauv(L, sizeof(LuaTable), UV_MAX - UV_MIN - 1)) LuaTable(L, UV_CACHE);
         luaL_setmetatable(L, "qmex::Table");
         return 1;
     }

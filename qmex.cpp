@@ -1013,6 +1013,27 @@ void Table::context(const KeyValue kvs[], std::size_t num) noexcept
 }
 
 
+extern "C" int lua_getnuvalue_hint(lua_State* L, int idx, int b)
+{
+    int a = 0;
+    while (b - a > 1)
+    {
+        int n = (a + b) / 2;
+        if (lua_getiuservalue(L, idx, n) == LUA_TNONE)
+            b = n;
+        else
+            a = n;
+        lua_pop(L, 1);
+    }
+    return a;
+}
+
+extern "C" int lua_getnuvalue(lua_State* L, int idx)
+{
+    return lua_getnuvalue_hint(L, idx, (std::numeric_limits<unsigned short>::max)() + 1);
+}
+
+
 namespace
 {
     enum
@@ -1042,9 +1063,62 @@ namespace
         }
     };
 
+    int chkidx(lua_State* L, int idx, bool error, int min = 1)
+    {
+        int isnum = 0;
+        lua_Integer i = lua_tointegerx(L, idx, &isnum);
+        if (isnum)
+        {
+            int max = (std::numeric_limits<unsigned short>::max)() - UV_MAX + 1;
+            if (i < min || i > max)
+                luaL_error(L, "index [%I] out of range [%d, %d]", i, min, max);
+            return (int)i;
+        }
+        if (error)
+        {
+            luaL_error(L, "index must be integer");
+        }
+        return 0;
+    }
+
+    int index(lua_State* L)
+    {
+        int i = chkidx(L, 2, false);
+        if (i == 0)
+        {
+            lua_getmetatable(L, 1);
+            lua_pushvalue(L, 2);
+            lua_rawget(L, -2);
+        }
+        else if (lua_getiuservalue(L, 1, i + UV_MAX - 1) == LUA_TNONE)
+        {
+            // Do not emit error as ipairs will stop when it gets nil value.
+        }
+        return 1;
+    }
+
+    int newindex(lua_State* L)
+    {
+        int i = chkidx(L, 2, true);
+        lua_pushvalue(L, 3);
+        if (lua_setiuservalue(L, 1, i + UV_MAX - 1) == 0)
+        {
+            luaL_error(L, "index [%I] out of range [%d, %d]", (lua_Integer)i, 1,
+                       lua_getnuvalue_hint(L, 1, i + UV_MAX - 1) - UV_MAX + 1);
+        }
+        return 0;
+    }
+
+    int len(lua_State* L)
+    {
+        lua_pushinteger(L, lua_getnuvalue(L, 1) - UV_MAX + 1);
+        return 1;
+    }
+
     int newtable(lua_State* L)
     {
-        new (lua_newuserdatauv(L, sizeof(LuaTable), UV_MAX - UV_MIN - 1)) LuaTable(L, UV_CACHE);
+        int n = lua_gettop(L) >= 1 ? chkidx(L, 1, true, 0) : 0;
+        new (lua_newuserdatauv(L, sizeof(LuaTable), n + UV_MAX - UV_MIN - 1)) LuaTable(L, UV_CACHE);
         luaL_setmetatable(L, "qmex::Table");
         return 1;
     }
@@ -1194,7 +1268,9 @@ extern "C" int luaopen_qmex(lua_State* L)
     if (luaL_newmetatable(L, "qmex::Table"))
     {
         const luaL_Reg metameth[] = {
-            {"__index", nullptr},  // place holder
+            {"__index", index},
+            {"__newindex", newindex},
+            {"__len", len},
             {"__gc", deltable},
             {"__close", deltable},
             {"parse", parse},
@@ -1205,7 +1281,7 @@ extern "C" int luaopen_qmex(lua_State* L)
         };
         luaL_setfuncs(L, metameth, 0);
     }
-    lua_setfield(L, -1, "__index");
+    lua_pop(L, 1);
 
     lua_createtable(L, 0, 1 + TypeKinds + OpKinds + 3);
 

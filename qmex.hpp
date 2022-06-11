@@ -39,6 +39,8 @@ struct lua_State;
 ///    require "qmex"
 ///
 extern "C" QMEX_API int luaopen_qmex(lua_State* L);
+extern "C" QMEX_API int lua_getnuvalue(lua_State* L, int idx);
+extern "C" QMEX_API int lua_getnuvalue_hint(lua_State* L, int idx, int hint);
 
 namespace qmex
 {

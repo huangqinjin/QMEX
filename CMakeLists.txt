@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.21)
 
 project(qmex)
 set(PACKAGE_NAME ${PROJECT_NAME})
@@ -31,7 +31,8 @@ add_executable(${PACKAGE_NAME}::cli ALIAS ${PROJECT_NAME})
 target_link_libraries(${PROJECT_NAME} PUBLIC ${PACKAGE_NAME}::${PACKAGE_NAME})
 
 
-include(CTest)
+option(BUILD_TESTING "Build the testing tree." ON)
 if(BUILD_TESTING)
+    enable_testing()
     add_subdirectory(test)
 endif()

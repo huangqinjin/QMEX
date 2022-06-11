@@ -183,7 +183,7 @@ namespace
     {
         LuaStack s(L, 1);
 
-        if (lua_getfield(L, local, expr) != LUA_TFUNCTION)
+        if (lua_getfield(L, local, expr) == LUA_TNIL)
         {
             lua_pop(L, 1);
 
@@ -994,46 +994,29 @@ void Table::context(const KeyValue kvs[], std::size_t num) noexcept
 
 namespace
 {
+    enum
+    {
+        UV_MIN,
+        UV_BUF,
+        UV_JIT,
+        UV_MAX,
+    };
+
     struct LuaTable : Table, LuaJIT
     {
-        int ref;
-        bool valid;
-
-        LuaTable() : ref(0), valid(false) {}
-
-        void release(lua_State* L)
-        {
-            if (valid) luaL_unref(L, LUA_REGISTRYINDEX, ref);
-            valid = false;
-        }
-
         void jit(lua_State* L, const char* name) override
         {
             LuaStack s(L, 1);
-            if (lua_rawgeti(L, LUA_REGISTRYINDEX, ref) == LUA_TTABLE)
-            {
-                lua_getfield(L, -1, "jit");
-                lua_insert(L, -2);
-                lua_pushstring(L, name);
-                if (lua_pcall(L, 2, 1, 0))
-                    throw LuaError(lua_tostring(L, -1));
-            }
-            else
-            {
-                throw LuaError("JIT not TABLE");
-            }
+            lua_getiuservalue(L, 1, UV_JIT);
+            lua_pushstring(L, name);
+            if (lua_pcall(L, 1, 1, 0))
+                throw LuaError(lua_tostring(L, -1));
         }
     };
 
-    int newjit(lua_State* L)
-    {
-        lua_createtable(L, 0, 1);
-        return 1;
-    }
-
     int newtable(lua_State* L)
     {
-        new (lua_newuserdata(L, sizeof(LuaTable))) LuaTable;
+        new (lua_newuserdatauv(L, sizeof(LuaTable), UV_MAX - UV_MIN - 1)) LuaTable;
         luaL_setmetatable(L, "qmex::Table");
         return 1;
     }
@@ -1064,11 +1047,13 @@ namespace
         LuaTable* t = totable(L);
         if (!isclosed(t))
         {
-            t->release(L);
             t->~LuaTable();
             std::memset(t, 0, sizeof(LuaTable));
-            lua_pushnil(L);
-            lua_setuservalue(L, 1);
+            for (int i = UV_MIN + 1; i < UV_MAX; ++i)
+            {
+                lua_pushnil(L);
+                lua_setiuservalue(L, 1, i);
+            }
         }
         return 0;
     }
@@ -1104,19 +1089,13 @@ namespace
         std::size_t len  = 0;
         const char* data = luaL_checklstring(L, 2, &len);
 
-        const bool jit = lua_gettop(L) >= 3;
-        if (jit) luaL_checktype(L, 3, LUA_TTABLE);
-        t->release(L);
-        if (jit)
-        {
-            lua_pushvalue(L, 3);
-            t->ref = luaL_ref(L, LUA_REGISTRYINDEX);
-            t->valid = true;
-        }
+        const bool jit = lua_isnoneornil(L, 3) == 0;
+        lua_pushvalue(L, 3);
+        lua_setiuservalue(L, 1, UV_JIT);
 
         void* buf = lua_newuserdatauv(L, len + 1, 0);
         std::memcpy(buf, data, len + 1);
-        lua_setuservalue(L, 1);
+        lua_setiuservalue(L, 1, UV_BUF);
         t->parse((char*)buf, len + 1, L, jit ? t : nullptr);
         return 0;
     }
@@ -1200,11 +1179,7 @@ extern "C" int luaopen_qmex(lua_State* L)
     }
     lua_setfield(L, -1, "__index");
 
-    lua_createtable(L, 0, 2 + TypeKinds + OpKinds + 3);
-
-    lua_pushliteral(L, "LuaJIT");
-    lua_pushcfunction(L, newjit);
-    lua_settable(L, -3);
+    lua_createtable(L, 0, 1 + TypeKinds + OpKinds + 3);
 
     lua_pushliteral(L, "Table");
     lua_pushcfunction(L, newtable);

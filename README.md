@@ -6,15 +6,15 @@ get the final data if needed.
 
 ## Quick Start
 
-Given a QMEX table,
+Given a QMEX [table](test/demo.ini),
 
-```
+```ini
 0.|      Grade.EQ  Subject.MH  Score.GE  Score.LT  =  Class  Average  Weight
 1.|        1        Math         60        inf     =  PASS    85.5    {0.6;print(Class,Average)}
 2.|        1        Math        -inf       60      =  FAIL    55      {0.4}
-3.|        2        Math|Art     90        inf     =  A       95      {Average/100}
-4.|        2        Math|Art     60        90      =  B       80      {math.sqrt(Average)}
-5.|        2        Math|Art    -inf       60      =  C       55      {math.exp(-100/Average)}
+3.|        2        Math|Art     90        inf     =  A       95      [math.random]
+4.|        2        Math|Art     60        90      =  B       80      {math.sqrt(Average/100)}
+5.|        2        Math|Art    -inf       60      =  C       55      [CalcWeight]
 ```
 
 you can query the table and retrieve data in just a few lines of code:
@@ -42,7 +42,7 @@ if (row <= 0) {
   // no matched row
 } else {
   table.retrieve(row, data, sizeof(data)/sizeof(data[0]));
-  // Class = B, Average = 80, Weight = 8.944
+  // Class = B, Average = 80, Weight = 0.894
 }
 
 ```
@@ -75,7 +75,7 @@ table, and also how to calcuate the distance between them. QMEX query will retur
 | Operator | Definition    | Value Type | Distance Formula                |
 |----------|---------------|------------|---------------------------------|
 | **MH**   | MatcH         | STRING     | `(Q match C) ? 0 : INFINITY`    |
-| **EQ**   | Equal         | NUMBER     | `(Q == C) ? 0 : INFINITY`       |
+| **EQ**   | EQual         | NUMBER     | `(Q == C) ? 0 : INFINITY`       |
 | **LT**   | Less Than     | NUMBER     | `(Q < C) ? (C - Q) : INFINITY`  |
 | **LE**   | Less Equal    | NUMBER     | `(Q <= C) ? (C - Q) : INFINITY` |
 | **GT**   | Greater Than  | NUMBER     | `(Q > C) ? (Q - C) : INFINITY`  |
@@ -92,9 +92,9 @@ with multiple patterns extension.
 
 
 ## Lua Evaluation
-For data columns, if the cell string is enclosed in square brackets, QMEX treats it as a zero-argument-single-return
-lua function and looks up it or compile it Just-In-Time. If the cell string is enclosed in braces, QMEX treats it as a lua
-table and evaluates it and use `[1]` as the cell value.
+For data columns, if the cell string is enclosed in square brackets `[]`, QMEX treats it as a zero-argument-single-return
+lua callable and looks up it or compile it Just-In-Time. If the cell string is enclosed in braces `{}`, QMEX treats it as
+a lua table and evaluates it and then uses `[1]` as the cell value.
 
 When evaluating the lua expressions, lua can access the data columns before current column of the same row as global
 variables. To access any other data, e.g. criteria columns, you can use `Table::context(KeyValue[], size_t)` to set
@@ -107,8 +107,13 @@ line by line. The format of query string line is:
 
 ```
 Criteria1:Value1  Criteria2:Value2  ...  Data1  Data2  Data3:Required3 ...
-
 ```
 
 By specifying required values on data columns, `qmex-cli` will check whether the retrieved data equal to required values,
 and output an error message if they don't.
+
+`qmex-cli` works as lua interpreter if the file path passed to it ends with `.lua`. The whole command line is
+
+```shell
+qmex-cli script [arg...]
+```

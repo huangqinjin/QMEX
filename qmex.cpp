@@ -1167,7 +1167,19 @@ namespace
         lua_pushnil(L);
         while (lua_next(L, idx))
         {
-            if (lua_type(L, -2) != LUA_TSTRING) continue;
+            switch (lua_type(L, -2))
+            {
+            case LUA_TSTRING:
+                break;
+            case LUA_TNUMBER:
+                if (lua_type(L, -1) == LUA_TSTRING)
+                    kvs.push_back(KeyValue(lua_tostring(L, -1)));
+                // [[fallthrough]];
+            default:
+                lua_pop(L, 1);
+                continue;
+            }
+
             switch (lua_type(L, -1))
             {
             case LUA_TNUMBER:
@@ -1244,16 +1256,32 @@ namespace
         unsigned options = (unsigned)luaL_optinteger(L, 4, QUERY_SUBSET);
         std::vector<KeyValue> kvs = tokvs(L, 3);
         t->retrieve(row, kvs.empty() ? nullptr : &kvs[0], kvs.size(), options);
+
+        lua_pushnil(L);
+        while (lua_next(L, 3))
+        {
+            if (lua_type(L, -1) == LUA_TSTRING && lua_type(L, -2) == LUA_TNUMBER)
+            {
+                lua_pop(L, 1);
+                lua_pushvalue(L, -1);
+                lua_pushnil(L);
+                lua_settable(L, 3);
+            }
+            else
+            {
+                lua_pop(L, 1);
+            }
+        }
+
         for (std::size_t i = 0; i < kvs.size(); ++i)
         {
-            lua_pushstring(L, kvs[i].key);
             if (kvs[i].type == NUMBER)
                 lua_pushnumber(L, kvs[i].val.n);
             else if (kvs[i].type == STRING)
                 lua_pushstring(L, kvs[i].val.s);
             else
                 lua_pushnil(L);
-            lua_settable(L, 3);
+            lua_setfield(L, 3, kvs[i].key);
         }
         return 0;
     }

@@ -674,6 +674,7 @@ void Table::parse(char* buf, std::size_t bufsz, lua_State* L, LuaJIT* jit) noexc
         switch (char& c = buf[i])
         {
         case '\0':
+        case '\r':
         case '\n':
             if (j != 0)
             {

@@ -539,7 +539,7 @@ struct Table::Context
     lua_State* L;
     LuaJIT* jit;
 
-    Context() noexcept : ownL(false), init(false), cache(0) {}
+    Context() noexcept : cache(0), ownL(false), init(false) {}
     ~Context() noexcept { clear(); }
 
     void clear() noexcept
@@ -1150,7 +1150,7 @@ namespace
         if (!isclosed(t))
         {
             t->~LuaTable();
-            std::memset(t, 0, sizeof(LuaTable));
+            std::memset((void*)t, 0, sizeof(LuaTable));
             for (int i = UV_MIN + 1; i < UV_MAX; ++i)
             {
                 lua_pushnil(L);

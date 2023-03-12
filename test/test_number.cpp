@@ -14,7 +14,7 @@ TEST_CASE("Number <=> String")
 
     for (int i = 0; i < f; ++i)
     {
-        sprintf(&buf[3], "%0*d", Number::precision + 1, i);
+        std::snprintf(&buf[3], sizeof(buf) - 3, "%0*d", Number::precision + 1, i);
 
         for (int j = 0; j < 2; ++j)
         {

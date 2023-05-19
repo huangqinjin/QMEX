@@ -89,6 +89,7 @@ namespace qmex
         LE,
         GT,
         GE,
+        AE,
     };
 
     QMEX_API const char* toString(Type type) noexcept;

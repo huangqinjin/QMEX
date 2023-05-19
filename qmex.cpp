@@ -10,6 +10,7 @@
 #include <limits>
 #include <vector>
 #include <new>
+#include <cmath>
 #include <climits>
 #include <cassert>
 
@@ -57,6 +58,7 @@ namespace
        "LE",
        "GT",
        "GE",
+       "AE",
     };
 
     const int TypeKinds = sizeof(TypeName) / sizeof(TypeName[0]);
@@ -523,6 +525,7 @@ double Criteria::distance(const KeyValue& q) noexcept(false)
     case LE: return qn.n <= val.n.n ? (double)val.n.n - (double)qn.n : (max)();
     case GT: return qn.n >  val.n.n ? (double)qn.n - (double)val.n.n : (max)();
     case GE: return qn.n >= val.n.n ? (double)qn.n - (double)val.n.n : (max)();
+    case AE: return std::fabs((double)qn.n - (double)val.n.n);
     }
     return 0;
 }

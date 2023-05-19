@@ -72,14 +72,15 @@ of `NUMBER` are listed as below.
 The criteria operators indicate how the query value `Q` to be compared with the criteria value `C` at each row of the
 table, and also how to calcuate the distance between them. QMEX query will return the row with minimum distance.
 
-| Operator | Definition    | Value Type | Distance Formula                |
-|----------|---------------|------------|---------------------------------|
-| **MH**   | MatcH         | STRING     | `(Q match C) ? 0 : INFINITY`    |
-| **EQ**   | EQual         | NUMBER     | `(Q == C) ? 0 : INFINITY`       |
-| **LT**   | Less Than     | NUMBER     | `(Q < C) ? (C - Q) : INFINITY`  |
-| **LE**   | Less Equal    | NUMBER     | `(Q <= C) ? (C - Q) : INFINITY` |
-| **GT**   | Greater Than  | NUMBER     | `(Q > C) ? (Q - C) : INFINITY`  |
-| **GE**   | Greater Equal | NUMBER     | `(Q >= C) ? (Q - C) : INFINITY` |
+| Operator | Definition          | Value Type | Distance Formula                |
+|----------|---------------------|------------|---------------------------------|
+| **MH**   | MatcH               | STRING     | `(Q match C) ? 0 : INFINITY`    |
+| **EQ**   | EQual               | NUMBER     | `(Q == C) ? 0 : INFINITY`       |
+| **LT**   | Less Than           | NUMBER     | `(Q < C) ? (C - Q) : INFINITY`  |
+| **LE**   | Less Equal          | NUMBER     | `(Q <= C) ? (C - Q) : INFINITY` |
+| **GT**   | Greater Than        | NUMBER     | `(Q > C) ? (Q - C) : INFINITY`  |
+| **GE**   | Greater Equal       | NUMBER     | `(Q >= C) ? (Q - C) : INFINITY` |
+| **AE**   | Approximately Equal | NUMBER     | `abs(Q - C)`                    |
 
 The pattern used in a **MH** operation is basically [glob](https://en.wikipedia.org/wiki/Glob_(programming)) pattern
 with multiple patterns extension.

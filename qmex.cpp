@@ -11,7 +11,7 @@
 #include <vector>
 #include <new>
 #include <cmath>
-#include <climits>
+#include <cstdint>
 #include <cassert>
 
 #include "qmex.hpp"
@@ -20,7 +20,7 @@
 using namespace qmex;
 
 #ifdef _WIN32
-#pragma comment(lib, "Shlwapi.lib")
+#pragma comment(lib, "shlwapi.lib")
 extern "C" int __stdcall PathMatchSpecA(const char* pszFile, const char* pszSpec);
 #else
 #include <fnmatch.h>
@@ -28,6 +28,9 @@ extern "C" int __stdcall PathMatchSpecA(const char* pszFile, const char* pszSpec
 
 namespace
 {
+    template<typename T, int N>
+    constexpr int ArraySize(const T(&)[N]) { return N; }
+
     bool MatchString(const char* pattern, const char* s) noexcept
     {
 #ifdef _WIN32
@@ -61,8 +64,8 @@ namespace
        "AE",
     };
 
-    const int TypeKinds = sizeof(TypeName) / sizeof(TypeName[0]);
-    const int OpKinds = sizeof(OpName) / sizeof(OpName[0]);
+    const int TypeKinds = ArraySize(TypeName);
+    const int OpKinds = ArraySize(OpName);
 
     struct StringGuard
     {
@@ -141,7 +144,7 @@ namespace
             };
 
             int t = lua_type(L, -1) + 1;
-            if (t < 0 || t >= sizeof(types) / sizeof(types[0]))
+            if (t < 0 || t >= ArraySize(types))
             {
                 char buf[200];
                 snprintf(buf, sizeof(buf), "unknown lua type %d, requires NUMBER or STRING", t - 1);
@@ -263,7 +266,7 @@ Number& Number::operator=(String s) noexcept(false)
         "infinity",
     };
 
-    for (int i = 0; i < sizeof(infs) / sizeof(infs[0]); ++i)
+    for (int i = 0; i < ArraySize(infs); ++i)
     {
         const char* p = infs[i];
         const char* q = s;
@@ -306,17 +309,17 @@ Number& Number::operator=(String s) noexcept(false)
 
     if (*s == '-')
     {
-        if (l <= (LONG_MIN + m) / factor()) l = LONG_MIN;
-        else l = l * factor() - m;
+        if (l > ((std::numeric_limits<long>::min)() + m) / factor()) l = l * factor() - m;
+        else l = (std::numeric_limits<long>::min)();
     }
     else
     {
-        if (l >= (LONG_MAX - m) / factor()) l = LONG_MAX;
-        else l = l * factor() + m;
+        if (l < ((std::numeric_limits<long>::max)() - m) / factor()) l = l * factor() + m;
+        else l = (std::numeric_limits<long>::max)();
     }
 
-    if (l == LONG_MAX || l >= inf().n) n = inf().n;
-    else if (l == LONG_MIN || l <= neginf().n) n = neginf().n;
+    if (l == (std::numeric_limits<long>::max)() || l >= inf().n) n = inf().n;
+    else if (l == (std::numeric_limits<long>::min)() || l <= neginf().n) n = neginf().n;
     else n = static_cast<integer>(l);
 
     return *this;
@@ -737,7 +740,7 @@ void Table::parse(char* buf, std::size_t bufsz, lua_State* L, LuaJIT* jit) noexc
         }
     }
 
-    assert(ctx->cells.size() == ctx->rows * ctx->cols);
+    assert((int)ctx->cells.size() == ctx->rows * ctx->cols);
     if (ctx->cells.empty()) throw TableFormatError("Table is empty");
 }
 
@@ -1167,7 +1170,7 @@ namespace
     std::vector<KeyValue> tokvs(lua_State* L, int idx)
     {
         std::vector<KeyValue> kvs;
-        kvs.reserve(lua_rawlen(L, idx));
+        kvs.reserve((std::size_t)lua_rawlen(L, idx));
         lua_pushnil(L);
         while (lua_next(L, idx))
         {
@@ -1341,7 +1344,7 @@ extern "C" int luaopen_qmex(lua_State* L)
         "QUERY_SUPERSET",
     };
 
-    for (int i = 0; i < sizeof(options) / sizeof(options[0]); ++i)
+    for (int i = 0; i < ArraySize(options); ++i)
     {
         lua_pushstring(L, options[i]);
         lua_pushinteger(L, i);

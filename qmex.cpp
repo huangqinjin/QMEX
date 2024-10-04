@@ -11,7 +11,6 @@
 #include <vector>
 #include <new>
 #include <cmath>
-#include <cstdint>
 #include <cassert>
 
 #include "qmex.hpp"
@@ -126,7 +125,7 @@ namespace
             kv.type = STRING;
             kv.val.s = lua_tostring(L, -1);
             lua_pushvalue(L, -1);
-            lua_seti(L, cache, (lua_Integer)(intptr_t)kv.val.s); //TODO keep pointer valid
+            lua_rawsetp(L, cache, kv.val.s); //TODO keep pointer valid
         }
         else error:
         {
@@ -159,22 +158,20 @@ namespace
         }
     }
 
-    void EvalLua(lua_State* L, int local, const char* expr, KeyValue& kv, int id) noexcept(false)
+    void EvalLua(lua_State* L, int local, const char* expr, KeyValue& kv) noexcept(false)
     {
-        LuaExpr t(expr);
-        LuaStack s(L, 2);
+        LuaStack s(L, 1);
 
-        lua_pushfstring(L, "%s:%d", kv.key, id);
-        lua_pushvalue(L, -1);
-        if (lua_gettable(L, local) != LUA_TFUNCTION)
+        if (lua_rawgetp(L, local, expr) != LUA_TFUNCTION)
         {
             lua_pop(L, 1);
+     
+            LuaExpr t(expr);
             if (lua_load(L, &LuaExpr::read, &t, kv.key, "t"))
                 throw LuaError(lua_tostring(L, -1));
+            
             lua_pushvalue(L, -1);
-            lua_insert(L, -3);
-            lua_settable(L, local);
-            lua_pushvalue(L, -1);
+            lua_rawsetp(L, local, expr);
         }
 
         if (lua_pcall(L, 0, 1, 0))
@@ -560,10 +557,11 @@ struct Table::Context
             lua_pushnil(L);
             lua_setiuservalue(L, 1, cache);
         }
-        else if (init && L && lua_getglobal(L, "QMEX_G") == LUA_TTABLE)
+        else if (init && L)
         {
+            lua_pushglobaltable(L);
             lua_pushnil(L);
-            lua_seti(L, -2, (lua_Integer)(intptr_t)this);
+            lua_rawsetp(L, -2, this);
             lua_pop(L, 1);
         }
 
@@ -578,17 +576,6 @@ struct Table::Context
         jit = nullptr;
     }
 
-    void g() noexcept
-    {
-        if (lua_getglobal(L, "QMEX_G") != LUA_TTABLE)
-        {
-            lua_pop(L, 1);
-            lua_createtable(L, 0, 2);
-            lua_pushvalue(L, -1);
-            lua_setglobal(L, "QMEX_G");
-        }
-    }
-
     int local() noexcept
     {
         if (cache > 0)
@@ -597,8 +584,8 @@ struct Table::Context
         }
         else
         {
-            g();
-            lua_geti(L, -1, (lua_Integer)(intptr_t)this);
+            lua_pushglobaltable(L);
+            lua_rawgetp(L, -1, this);
             lua_remove(L, -2);
         }
         return lua_gettop(L);
@@ -622,9 +609,9 @@ struct Table::Context
             else
             {
                 LuaStack s(L, 1);
-                g();
+                lua_pushglobaltable(L);
                 lua_newtable(L);
-                lua_seti(L, -2, (lua_Integer)(intptr_t)this);
+                lua_rawsetp(L, -2, this);
             }
             init = true;
         }
@@ -992,7 +979,7 @@ bool Table::retrieve(int i, int j, KeyValue& kv) noexcept(false) try
     if (val[0] == '{')
     {
         LuaStack s(ctx->lua(), 1);
-        EvalLua(ctx->lua(), ctx->local(), val, kv, i);
+        EvalLua(ctx->lua(), ctx->local(), val, kv);
     }
     else if (val[0] == '[')
     {

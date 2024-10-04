@@ -1228,6 +1228,40 @@ namespace
         return kvs;
     }
 
+    int rows(lua_State* L)
+    {
+        LuaTable* t = checktable(L);
+        lua_pushinteger(L, (lua_Integer)t->rows());
+        return 1;
+    }
+
+    int cols(lua_State* L)
+    {
+        LuaTable* t = checktable(L);
+        lua_pushinteger(L, (lua_Integer)t->cols());
+        return 1;
+    }
+
+    int criteria(lua_State* L)
+    {
+        LuaTable* t = checktable(L);
+        lua_pushinteger(L, (lua_Integer)t->criteria());
+        return 1;
+    }
+
+    int cell(lua_State* L) try
+    {
+        LuaTable* t = checktable(L);
+        lua_Integer i = luaL_checkinteger(L, 2);
+        lua_Integer j = luaL_checkinteger(L, 3);
+        lua_pushstring(L, t->cell((int)i, (int)j));
+        return 1;
+    }
+    catch (std::exception& e)
+    {
+        return luaL_error(L, "%s", e.what());
+    }
+
     int parse(lua_State* L) try
     {
         LuaTable* t = checktable(L);
@@ -1332,6 +1366,10 @@ extern "C" int luaopen_qmex(lua_State* L)
             {"__len", len},
             {"__gc", deltable},
             {"__close", deltable},
+            {"rows", rows},
+            {"cols", cols},
+            {"criteria", criteria},
+            {"cell", cell},
             {"parse", parse},
             {"query", query},
             {"verify", verify},

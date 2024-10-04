@@ -675,6 +675,7 @@ void Table::parse(char* buf, std::size_t bufsz, lua_State* L, LuaJIT* jit) noexc
 
     int j = 0, criteria = 0;
     String cell = nullptr;
+    char quote = '\0';
     for (std::size_t i = 0; i < bufsz; ++i)
     {
         switch (char& c = buf[i])
@@ -684,6 +685,12 @@ void Table::parse(char* buf, std::size_t bufsz, lua_State* L, LuaJIT* jit) noexc
         case '\n':
             if (j != 0)
             {
+                if (quote)
+                {
+                    char str[200];
+                    snprintf(str, sizeof(str), "Table has non-enclosed quote %c at row %d", quote, ctx->rows);
+                    throw TableFormatError(str);
+                }
                 if (ctx->cols == 0)
                     ctx->cols = j;
                 if (criteria == 0 || criteria == j)
@@ -702,10 +709,12 @@ void Table::parse(char* buf, std::size_t bufsz, lua_State* L, LuaJIT* jit) noexc
                 j = 0;
                 criteria = 0;
             }
+            goto end;
         case ' ':
         case '\t':
         //case ',':
         case '=':
+            if (quote) continue;
             if (c == '=' && criteria == 0)
             {
                 criteria = j;
@@ -724,13 +733,28 @@ void Table::parse(char* buf, std::size_t bufsz, lua_State* L, LuaJIT* jit) noexc
                     throw TableFormatError(str);
                 }
             }
+        end:
             if (cell)
             {
+                if (quote)
+                {
+                    ++cell;
+                    quote = '\0';
+                }
                 ctx->cells.push_back(cell);
                 cell = nullptr;
                 c = '\0';
             }
             break;
+        case '\'':
+        case '"':
+        case '`':
+        case '!':
+        case '$':
+        case '%':
+            if (!cell) quote = c;
+            else if (quote == c) goto end;
+            //[[fallthrough]];
         default:
             if (!cell) // start a new cell
             {

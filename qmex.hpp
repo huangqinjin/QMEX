@@ -213,7 +213,7 @@ namespace qmex
 
     struct LuaJIT
     {
-        virtual void jit(lua_State* L, const char* name) = 0;
+        virtual void jit(lua_State* L, int env, const char* name) = 0;
     };
 
     enum QueryOption
@@ -246,7 +246,9 @@ namespace qmex
         void verify(int row, KeyValue kvs[], std::size_t num, unsigned options = QUERY_SUBSET) noexcept(false);
         void retrieve(int row, KeyValue kvs[], std::size_t num, unsigned options = QUERY_SUBSET) noexcept(false);
         bool retrieve(int i, int j, KeyValue& kv) noexcept(false);
-        void context(const KeyValue kvs[], std::size_t num) noexcept;
+        void setenv(const KeyValue kvs[], std::size_t num) noexcept;
+        void getenv(KeyValue kvs[], std::size_t num, bool raw = false) noexcept(false);
+        void global(const KeyValue kvs[], std::size_t num) noexcept;
     };
 }
 

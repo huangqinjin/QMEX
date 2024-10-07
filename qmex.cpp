@@ -111,7 +111,7 @@ namespace
         }
     };
 
-    void LuaValue(lua_State* L, int cache, KeyValue& kv) noexcept(false)
+    void LuaValue(lua_State* L, int env, KeyValue& kv) noexcept(false)
     {
         if (kv.type == NUMBER || (kv.type == NIL && lua_type(L, -1) == LUA_TNUMBER))
         {
@@ -125,7 +125,7 @@ namespace
             kv.type = STRING;
             kv.val.s = lua_tostring(L, -1);
             lua_pushvalue(L, -1);
-            lua_rawsetp(L, cache, kv.val.s); //TODO keep pointer valid
+            lua_rawsetp(L, env, kv.val.s); //TODO keep pointer valid
         }
         else error:
         {
@@ -158,11 +158,11 @@ namespace
         }
     }
 
-    void EvalLua(lua_State* L, int local, const char* expr, KeyValue& kv) noexcept(false)
+    void EvalLua(lua_State* L, int env, const char* expr, KeyValue& kv) noexcept(false)
     {
         LuaStack s(L, 1);
 
-        if (lua_rawgetp(L, local, expr) != LUA_TFUNCTION)
+        if (lua_rawgetp(L, env, expr) != LUA_TFUNCTION)
         {
             lua_pop(L, 1);
      
@@ -170,44 +170,53 @@ namespace
             if (lua_load(L, &LuaExpr::read, &t, kv.key, "t"))
                 throw LuaError(lua_tostring(L, -1));
             
+            lua_pushvalue(L, env);
+            lua_setupvalue(L, -2, 1);
+
             lua_pushvalue(L, -1);
-            lua_rawsetp(L, local, expr);
+            lua_rawsetp(L, env, expr);
         }
 
         if (lua_pcall(L, 0, 1, 0))
             throw LuaError(lua_tostring(L, -1));
         ++s.n;
         lua_geti(L, -1, 1);
-        LuaValue(L, local, kv);
+        LuaValue(L, env, kv);
     }
 
-    void CallLua(lua_State* L, int local, const char* expr, KeyValue& kv, LuaJIT* jit) noexcept(false) try
+    void CallLua(lua_State* L, int env, const char* expr, KeyValue& kv, LuaJIT* jit) noexcept(false) try
     {
         LuaStack s(L, 1);
 
-        if (lua_getfield(L, local, expr) == LUA_TNIL)
+        if (lua_getfield(L, env, expr) == LUA_TNIL)
         {
             lua_pop(L, 1);
 
             LuaExpr t(expr);
-            if (lua_load(L, &LuaExpr::read, &t, kv.key, "t") || lua_pcall(L, 0, 1, 0))
+            if (lua_load(L, &LuaExpr::read, &t, kv.key, "t"))
+                throw LuaError(lua_tostring(L, -1));
+
+            lua_pushvalue(L, env);
+            lua_setupvalue(L, -2, 1);
+
+            if(lua_pcall(L, 0, 1, 0))
                 throw LuaError(lua_tostring(L, -1));
 
             lua_pushvalue(L, -1);
-            lua_setfield(L, local, expr);
+            lua_setfield(L, env, expr);
         }
 
         if (lua_pcall(L, 0, 1, 0))
             throw LuaError(lua_tostring(L, -1));
         jit = nullptr;
-        LuaValue(L, local, kv);
+        LuaValue(L, env, kv);
     }
     catch (LuaError&)
     {
         if (jit)
         {
-            jit->jit(L, expr);
-            CallLua(L, local, expr, kv, nullptr);
+            jit->jit(L, env, expr);
+            CallLua(L, env, expr, kv, nullptr);
         }
         else
         {
@@ -576,7 +585,7 @@ struct Table::Context
         jit = nullptr;
     }
 
-    int local() noexcept
+    int env() noexcept
     {
         if (cache > 0)
         {
@@ -601,17 +610,25 @@ struct Table::Context
         }
         if (!init)
         {
+            LuaStack s(L, 0);
+            lua_newtable(L); // env
+            lua_pushglobaltable(L);
+            lua_setfield(L, -2, "_G");
+            lua_newtable(L); // metatable
+            lua_pushglobaltable(L);
+            lua_setfield(L, -2, "__index");
+            lua_setmetatable(L, -2);
+
             if (cache > 0)
             {
-                lua_newtable(L);
                 lua_setiuservalue(L, 1, cache);
             }
             else
             {
-                LuaStack s(L, 1);
                 lua_pushglobaltable(L);
-                lua_newtable(L);
+                lua_insert(L, -2);
                 lua_rawsetp(L, -2, this);
+                lua_pop(L, 1);
             }
             init = true;
         }
@@ -882,8 +899,8 @@ void Table::verify(int row, KeyValue kvs[], std::size_t num, unsigned options) n
                 lua = val[0] == '{' || val[0] == '[';
                 if (lua)
                 {
-                    context(kvs, num);
-                    context(nullptr, 0);
+                    setenv(kvs, num);
+                    setenv(nullptr, 0);
                 }
             }
 
@@ -936,8 +953,8 @@ void Table::retrieve(int row, KeyValue kvs[], std::size_t num, unsigned options)
                 lua = val[0] == '{' || val[0] == '[';
                 if (lua)
                 {
-                    context(kvs, num);
-                    context(nullptr, 0);
+                    setenv(kvs, num);
+                    setenv(nullptr, 0);
                 }
             }
 
@@ -958,13 +975,12 @@ bool Table::retrieve(int i, int j, KeyValue& kv) noexcept(false) try
     if (lua)
     {
         {
-            LuaStack s(ctx->lua(), 1);
-            if (lua_getglobal(ctx->lua(), kv.key) != LUA_TNIL)
+            LuaStack s(ctx->lua(), 2);
+            int env = ctx->env();
+            lua_pushstring(ctx->lua(), kv.key);
+            if (lua_rawget(ctx->lua(), env) != LUA_TNIL)
             {
-                int cache = ctx->local();
-                lua_pushvalue(ctx->lua(), -2);
-                s.n += 2;
-                LuaValue(ctx->lua(), cache, kv);
+                LuaValue(ctx->lua(), env, kv);
                 return lua;
             }
         }
@@ -972,20 +988,20 @@ bool Table::retrieve(int i, int j, KeyValue& kv) noexcept(false) try
         {
             KeyValue ks(cell(0, k));
             if (retrieve(i, k, ks)) break;
-            else context(&ks, 1);
+            else setenv(&ks, 1);
         }
     }
 
     if (val[0] == '{')
     {
         LuaStack s(ctx->lua(), 1);
-        EvalLua(ctx->lua(), ctx->local(), val, kv);
+        EvalLua(ctx->lua(), ctx->env(), val, kv);
     }
     else if (val[0] == '[')
     {
         StringGuard _(val + std::strlen(val) - 1);
         LuaStack s(ctx->lua(), 1);
-        CallLua(ctx->lua(), ctx->local(), val + 1, kv, ctx->jit);
+        CallLua(ctx->lua(), ctx->env(), val + 1, kv, ctx->jit);
     }
     else if (kv.type == NUMBER)
     {
@@ -997,7 +1013,7 @@ bool Table::retrieve(int i, int j, KeyValue& kv) noexcept(false) try
         kv.type = STRING;
     }
 
-    if (lua) context(&kv, 1);
+    if (lua) setenv(&kv, 1);
     return lua;
 }
 catch (std::exception& e)
@@ -1007,14 +1023,63 @@ catch (std::exception& e)
     throw TableDataError(std::string(buf) + e.what());
 }
 
-void Table::context(const KeyValue kvs[], std::size_t num) noexcept
+void Table::setenv(const KeyValue kvs[], std::size_t num) noexcept
+{
+    LuaStack s(ctx->lua(), 1);
+    int env = ctx->env();
+ 
+    if (!kvs || !num)
+    {
+        for (int j = ctx->criteria; j < ctx->cols; ++j)
+        {
+            lua_pushstring(ctx->lua(), cell(0, j));
+            lua_pushnil(ctx->lua());
+            lua_rawset(ctx->lua(), env);
+        }
+        return;
+    }
+
+    for (std::size_t i = 0; i < num; ++i)
+    {
+        lua_pushstring(ctx->lua(), kvs[i].key);
+        if (kvs[i].type == NUMBER)
+            lua_pushnumber(ctx->lua(), kvs[i].val.n);
+        else if (kvs[i].type == STRING)
+            lua_pushstring(ctx->lua(), kvs[i].val.s);
+        else
+            lua_pushnil(ctx->lua());
+        lua_rawset(ctx->lua(), env);
+    }
+}
+
+void Table::getenv(KeyValue kvs[], std::size_t num, bool raw) noexcept(false)
+{
+    LuaStack s(ctx->lua(), 1);
+    int env = ctx->env();
+    for (std::size_t i = 0; i < num; ++i)
+    {
+        LuaStack s(ctx->lua(), 1);
+        if (raw)
+        {
+            lua_pushstring(ctx->lua(), kvs[i].key);
+            lua_rawget(ctx->lua(), env);
+        }
+        else
+        {
+            lua_getfield(ctx->lua(), env, kvs[i].key);
+        }
+        LuaValue(ctx->lua(), env, kvs[i]);
+    }
+}
+
+void Table::global(const KeyValue kvs[], std::size_t num) noexcept
 {
     if (!kvs || !num)
     {
         for (int j = ctx->criteria; j < ctx->cols; ++j)
         {
             KeyValue kv(cell(0, j));
-            context(&kv, 1);
+            global(&kv, 1);
         }
         return;
     }
@@ -1071,12 +1136,19 @@ namespace
             ctx->cache = cache;
         }
 
-        void jit(lua_State* L, const char* name) override
+        void pushenv() noexcept
+        {
+            (void) ctx->lua();
+            (void) ctx->env();
+        }
+
+        void jit(lua_State* L, int env, const char* name) override
         {
             LuaStack s(L, 1);
             lua_getiuservalue(L, 1, UV_JIT);
+            lua_pushvalue(L, env);
             lua_pushstring(L, name);
-            if (lua_pcall(L, 1, 1, 0))
+            if (lua_pcall(L, 2, 1, 0))
                 throw LuaError(lua_tostring(L, -1));
         }
     };
@@ -1249,6 +1321,13 @@ namespace
         return luaL_error(L, "%s", e.what());
     }
 
+    int env(lua_State* L)
+    {
+        LuaTable* t = checktable(L);
+        t->pushenv();
+        return 1;
+    }
+
     int parse(lua_State* L) try
     {
         LuaTable* t = checktable(L);
@@ -1357,6 +1436,7 @@ extern "C" int luaopen_qmex(lua_State* L)
             {"cols", cols},
             {"criteria", criteria},
             {"cell", cell},
+            {"env", env},
             {"parse", parse},
             {"query", query},
             {"verify", verify},

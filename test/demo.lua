@@ -43,9 +43,9 @@ local function tostring(map, keys)
     return table.concat(list, ' ')
 end
 
-local function jit(name)
+local function jit(_ENV, name)
     print("JIT", name)
-    _G[name] = function() return math.exp(-100/Average) end
+    _ENV[name] = function() return math.exp(-100/Average) end
 end
 
 

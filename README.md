@@ -97,9 +97,9 @@ For data columns, if the cell string is enclosed in square brackets `[]`, QMEX t
 lua callable and looks up it or compile it Just-In-Time. If the cell string is enclosed in braces `{}`, QMEX treats it as
 a lua table and evaluates it and then uses `[1]` as the cell value.
 
-When evaluating the lua expressions, lua can access the data columns before current column of the same row as global
-variables. To access any other data, e.g. criteria columns, you can use `Table::context(KeyValue[], size_t)` to set
-corresponding lua global variables before retrieving data.
+When evaluating the lua expressions, lua can access the data columns before current column of the same row by free names.
+To access any other data, e.g. criteria columns, you can use `Table::setenv(KeyValue[], size_t)` to set corresponding lua
+[`_ENV`](https://www.lua.org/manual/5.4/manual.html#2.2) variables before retrieving data.
 
 
 ## Command Line Tool

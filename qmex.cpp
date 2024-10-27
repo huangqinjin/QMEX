@@ -568,10 +568,8 @@ struct Table::Context
         }
         else if (init && L)
         {
-            lua_pushglobaltable(L);
-            lua_pushnil(L);
-            lua_rawsetp(L, -2, this);
-            lua_pop(L, 1);
+            luaL_unref(L, LUA_REGISTRYINDEX, -cache);
+            cache = 0;
         }
 
         if (ownL && L)
@@ -593,9 +591,7 @@ struct Table::Context
         }
         else
         {
-            lua_pushglobaltable(L);
-            lua_rawgetp(L, -1, this);
-            lua_remove(L, -2);
+            lua_rawgeti(L, LUA_REGISTRYINDEX, -cache);
         }
         return lua_gettop(L);
     }
@@ -611,10 +607,10 @@ struct Table::Context
         if (!init)
         {
             LuaStack s(L, 0);
-            lua_newtable(L); // env
+            lua_createtable(L, 0, 1); // env
             lua_pushglobaltable(L);
-            lua_setfield(L, -2, "_G");
-            lua_newtable(L); // metatable
+            lua_setfield(L, -2, LUA_GNAME);
+            lua_createtable(L, 0, 1); // metatable
             lua_pushglobaltable(L);
             lua_setfield(L, -2, "__index");
             lua_setmetatable(L, -2);
@@ -625,10 +621,7 @@ struct Table::Context
             }
             else
             {
-                lua_pushglobaltable(L);
-                lua_insert(L, -2);
-                lua_rawsetp(L, -2, this);
-                lua_pop(L, 1);
+                cache = -luaL_ref(L, LUA_REGISTRYINDEX);
             }
             init = true;
         }

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.23)
 
 project(qmex)
 set(PACKAGE_NAME ${PROJECT_NAME})
@@ -15,11 +15,11 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 add_library(${PROJECT_NAME} qmex.cpp)
 add_library(${PACKAGE_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
-target_include_directories(${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>)
+target_sources(${PROJECT_NAME} PUBLIC FILE_SET HEADERS FILES qmex.hpp)
 
 find_package(Lua REQUIRED)
-target_include_directories(${PROJECT_NAME} PUBLIC ${LUA_INCLUDE_DIR})
-target_link_libraries(${PROJECT_NAME} PUBLIC ${LUA_LIBRARIES})
+target_include_directories(${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${LUA_INCLUDE_DIR}>)
+target_link_libraries(${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${LUA_LIBRARIES}>)
 
 get_target_property(PROJECT_LIBRARY_TYPE ${PROJECT_NAME} TYPE)
 string(TOUPPER ${PROJECT_NAME} PROJECT_UPPER_NAME)
@@ -39,17 +39,25 @@ if(PROJECT_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
     )
 endif()
 
+include(GNUInstallDirs)
+install(TARGETS ${PROJECT_NAME} EXPORT ${PACKAGE_NAME}-config FILE_SET HEADERS)
 
-project(${PACKAGE_NAME}-cli)
-
-add_executable(${PROJECT_NAME} cli.cpp)
-add_executable(${PACKAGE_NAME}::cli ALIAS ${PROJECT_NAME})
-
-target_link_libraries(${PROJECT_NAME} PUBLIC ${PACKAGE_NAME}::${PACKAGE_NAME})
-
+option(BUILD_TOOLS "Build cli tools" ON)
+if(BUILD_TOOLS)
+    project(${PACKAGE_NAME}-cli)
+    add_executable(${PROJECT_NAME} cli.cpp)
+    add_executable(${PACKAGE_NAME}::cli ALIAS ${PROJECT_NAME})
+    target_link_libraries(${PROJECT_NAME} PUBLIC ${PACKAGE_NAME}::${PACKAGE_NAME})
+    install(TARGETS ${PROJECT_NAME} EXPORT ${PACKAGE_NAME}-config)
+endif()
 
 option(BUILD_TESTING "Build the testing tree." ON)
 if(BUILD_TESTING)
     enable_testing()
     add_subdirectory(test)
 endif()
+
+install(EXPORT ${PACKAGE_NAME}-config
+    NAMESPACE ${PACKAGE_NAME}::
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/${PACKAGE_NAME}
+)

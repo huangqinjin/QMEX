@@ -13,17 +13,27 @@ target_link_libraries(${PROJECT_NAME} PUBLIC ${PACKAGE_NAME}::${PACKAGE_NAME})
 
 add_test(NAME "Unit Tests" COMMAND ${PROJECT_NAME})
 
-add_test(NAME "Lua Demo" COMMAND ${PACKAGE_NAME}::cli demo.lua WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
+if(TARGET ${PACKAGE_NAME}::cli)
 
-find_program(CMD cmd.exe)
-if(CMD)
-    add_test(NAME "Bat Demo" WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-             COMMAND demo.bat $<SHELL_PATH:$<TARGET_FILE:${PACKAGE_NAME}::cli>>)
+    add_test(NAME "Lua Demo"
+        WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+        COMMAND ${PACKAGE_NAME}::cli demo.lua
+    )
+
+    find_program(CMD cmd.exe)
+    if(CMD)
+        add_test(NAME "Bat Demo"
+            WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+            COMMAND demo.bat $<SHELL_PATH:$<TARGET_FILE:${PACKAGE_NAME}::cli>>
+        )
+    endif()
+
+    find_program(BASH bash)
+    if(BASH)
+        add_test(NAME "Bash Demo"
+            WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+            COMMAND ${BASH} demo.sh $<TARGET_FILE:${PACKAGE_NAME}::cli>
+        )
+    endif()
+
 endif()
-
-find_program(BASH bash)
-if(BASH)
-    add_test(NAME "Bash Demo" WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-             COMMAND ${BASH} demo.sh $<TARGET_FILE:${PACKAGE_NAME}::cli>)
-endif()
-

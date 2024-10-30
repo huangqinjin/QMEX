@@ -24,8 +24,20 @@ target_link_libraries(${PROJECT_NAME} PUBLIC ${LUA_LIBRARIES})
 get_target_property(PROJECT_LIBRARY_TYPE ${PROJECT_NAME} TYPE)
 string(TOUPPER ${PROJECT_NAME} PROJECT_UPPER_NAME)
 string(MAKE_C_IDENTIFIER ${PROJECT_UPPER_NAME} PROJECT_UPPER_NAME)
-set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" DEFINE_SYMBOL ${PROJECT_UPPER_NAME}_EXPORTS)
-target_compile_definitions(${PROJECT_NAME} PUBLIC ${PROJECT_UPPER_NAME}_${PROJECT_LIBRARY_TYPE})
+target_compile_definitions(${PROJECT_NAME} INTERFACE ${PROJECT_UPPER_NAME}_${PROJECT_LIBRARY_TYPE})
+if(PROJECT_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
+    if(WIN32)
+        # https://github.com/lua/lua/blob/v5.4.0/luaconf.h#L222
+        set(suffix .dll)
+    else()
+        # https://github.com/lua/lua/blob/v5.4.0/luaconf.h#L242
+        set(suffix .so)
+    endif()
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        PREFIX "" SUFFIX ${suffix}
+        DEFINE_SYMBOL ${PROJECT_UPPER_NAME}_EXPORTS
+    )
+endif()
 
 
 project(${PACKAGE_NAME}-cli)

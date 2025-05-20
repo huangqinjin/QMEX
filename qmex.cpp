@@ -32,6 +32,7 @@ namespace
 
     bool MatchString(const char* pattern, const char* s) noexcept
     {
+        if (*pattern == '\0') return *s == '\0';
 #ifdef _WIN32
         return PathMatchSpecA(s, pattern) != 0;
 #else
@@ -464,7 +465,7 @@ void Criteria::bind(String val) noexcept(false)
 {
     if (op == MH)
     {
-        if (!val || !*val) throw ValueTypeError("Criteria [" + std::string(key) + "] requires non-NIL");
+        if (!val) throw ValueTypeError("Criteria [" + std::string(key) + "] requires non-NIL");
         this->val.s = val;
     }
     else try

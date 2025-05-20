@@ -609,10 +609,8 @@ struct Table::Context
             LuaStack s(L, 0);
             lua_createtable(L, 0, 1); // env
             lua_pushglobaltable(L);
-            lua_setfield(L, -2, LUA_GNAME);
-            lua_createtable(L, 0, 1); // metatable
-            lua_pushglobaltable(L);
             lua_setfield(L, -2, "__index");
+            lua_pushvalue(L, -1);
             lua_setmetatable(L, -2);
 
             if (cache > 0)

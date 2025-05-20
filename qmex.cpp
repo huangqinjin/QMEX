@@ -851,9 +851,9 @@ int Table::query(const KeyValue kvs[], std::size_t num, unsigned options) noexce
                 info[info[j].index].count += 1;
             }
 
-            for (std::size_t j = 0; j < (std::min)(info.size(), num); ++j)
+            for (std::size_t j = 0; j < (std::min)(info.size() + 1, num); ++j)
             {
-                if (info[j].count == 0)
+                if ((j < info.size() && info[j].count == 0) || (j == info.size()))
                     throw TooManyKeys('[' + std::string(kvs[j].key) + "] not Criteria");
             }
         }
